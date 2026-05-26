@@ -23,7 +23,7 @@ const getFirebaseConfig = () => {
   if (isCanvas) {
     return JSON.parse(__firebase_config);
   }
-  return fallbackConfig;
+  return firebaseConfig;
 };
 
 const app = initializeApp(getFirebaseConfig());
