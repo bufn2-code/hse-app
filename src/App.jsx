@@ -27,12 +27,12 @@ import {
 // =====================================================
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAtEdHjdmC_MzMkb8Nmt07LU45xaYUsTg4",
-  authDomain: "kpi-safety-officer.firebaseapp.com",
-  projectId: "kpi-safety-officer",
-  storageBucket: "kpi-safety-officer.firebasestorage.app",
-  messagingSenderId: "741875026274",
-  appId: "1:741875026274:web:cd11cd36a8da1b99cec43b"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
 const app = initializeApp(firebaseConfig);
