@@ -1,13 +1,7 @@
 import React, { useState, useEffect } from 'react';
+
 import {
-  Database,
-  ClipboardPaste,
-  Calculator,
   CheckCircle,
-  AlertCircle,
-  Info,
-  Table,
-  UserPlus,
   Trash2
 } from 'lucide-react';
 
@@ -28,9 +22,9 @@ import {
   onSnapshot
 } from 'firebase/firestore';
 
-// ======================================================
+// =====================================================
 // FIREBASE CONFIG
-// ======================================================
+// =====================================================
 
 const firebaseConfig = {
   apiKey: "AIzaSyAtEdHjdmC_MzMkb8Nmt07LU45xaYUsTg4",
@@ -44,74 +38,86 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 
 const auth = getAuth(app);
+
 const db = getFirestore(app);
 
 const APP_ID = 'bufn2-kpi-app';
 
-// ======================================================
+// =====================================================
 // ERROR BOUNDARY
-// ======================================================
+// =====================================================
 
 class ErrorBoundary extends React.Component {
+
   constructor(props) {
+
     super(props);
+
     this.state = {
       hasError: false,
       error: null
     };
+
   }
 
   static getDerivedStateFromError(error) {
+
     return {
       hasError: true,
       error
     };
+
   }
 
   render() {
-    if (this.state.hasError) {
-      return (
-        <div className="p-10 text-red-600">
-          <h1 className="text-2xl font-bold mb-4">
-            Aplikasi Error
-          </h1>
 
-          <pre className="bg-red-100 p-4 rounded">
-            {String(this.state.error)}
-          </pre>
+    if (this.state.hasError) {
+
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-red-50 p-10">
+          <div className="bg-white p-6 rounded-xl shadow-xl max-w-xl w-full">
+            <h1 className="text-2xl font-bold text-red-600 mb-4">
+              Aplikasi Error
+            </h1>
+
+            <pre className="text-sm overflow-auto bg-red-100 p-4 rounded">
+              {String(this.state.error)}
+            </pre>
+          </div>
         </div>
       );
+
     }
 
     return this.props.children;
+
   }
+
 }
 
-// ======================================================
+// =====================================================
 // APP
-// ======================================================
+// =====================================================
 
 export default function App() {
+
+  // =====================================================
+  // STATE
+  // =====================================================
 
   const [activeTab, setActiveTab] = useState('database');
 
   const [user, setUser] = useState(null);
 
-  const [isReady, setIsReady] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  // ======================================================
-  // DATA
-  // ======================================================
+  const [errorMsg, setErrorMsg] = useState('');
 
   const [personnel, setPersonnel] = useState([]);
 
   const [weeklyData, setWeeklyData] = useState({});
 
   const [monthlyData, setMonthlyData] = useState({});
-
-  // ======================================================
-  // INPUT
-  // ======================================================
 
   const [newEmp, setNewEmp] = useState({
     nama: '',
@@ -127,9 +133,9 @@ export default function App() {
 
   const [pasteText, setPasteText] = useState('');
 
-  // ======================================================
-  // WEEKS
-  // ======================================================
+  // =====================================================
+  // DATA
+  // =====================================================
 
   const weeks = [
     { id: 'w1', label: 'Minggu 1' },
@@ -138,10 +144,6 @@ export default function App() {
     { id: 'w4', label: 'Minggu 4' },
     { id: 'w5', label: 'Minggu 5' }
   ];
-
-  // ======================================================
-  // CATEGORY
-  // ======================================================
 
   const soCategories = [
     { key: 'obs', label: 'Observasi', target: 200 },
@@ -163,14 +165,16 @@ export default function App() {
   ];
 
   const getCategories = (role) => {
+
     return role === 'SO'
       ? soCategories
       : wfsoCategories;
+
   };
 
-  // ======================================================
+  // =====================================================
   // AUTH
-  // ======================================================
+  // =====================================================
 
   useEffect(() => {
 
@@ -184,6 +188,12 @@ export default function App() {
 
         console.error(err);
 
+        setErrorMsg(
+          'Anonymous Auth belum aktif di Firebase Authentication'
+        );
+
+        setLoading(false);
+
       }
 
     };
@@ -191,16 +201,18 @@ export default function App() {
     login();
 
     const unsub = onAuthStateChanged(auth, (u) => {
+
       setUser(u);
+
     });
 
     return () => unsub();
 
   }, []);
 
-  // ======================================================
-  // FIRESTORE LISTENER
-  // ======================================================
+  // =====================================================
+  // FIRESTORE
+  // =====================================================
 
   useEffect(() => {
 
@@ -233,49 +245,103 @@ export default function App() {
       'monthlyData'
     );
 
-    const unsubPersonnel = onSnapshot(personnelRef, (snap) => {
+    const unsubPersonnel = onSnapshot(
 
-      const arr = [];
+      personnelRef,
 
-      snap.forEach((d) => {
+      (snapshot) => {
 
-        arr.push(d.data());
+        const arr = [];
 
-      });
+        snapshot.forEach((d) => {
 
-      setPersonnel(arr);
+          arr.push(d.data());
 
-    });
+        });
 
-    const unsubWeekly = onSnapshot(weeklyRef, (snap) => {
+        setPersonnel(arr);
 
-      const obj = {};
+        setLoading(false);
 
-      snap.forEach((d) => {
+      },
 
-        obj[d.id] = d.data();
+      (err) => {
 
-      });
+        console.error(err);
 
-      setWeeklyData(obj);
+        setErrorMsg(
+          'Firestore Rules menolak akses personnel'
+        );
 
-    });
+        setLoading(false);
 
-    const unsubMonthly = onSnapshot(monthlyRef, (snap) => {
+      }
 
-      const obj = {};
+    );
 
-      snap.forEach((d) => {
+    const unsubWeekly = onSnapshot(
 
-        obj[d.id] = d.data();
+      weeklyRef,
 
-      });
+      (snapshot) => {
 
-      setMonthlyData(obj);
+        const obj = {};
 
-      setIsReady(true);
+        snapshot.forEach((d) => {
 
-    });
+          obj[d.id] = d.data();
+
+        });
+
+        setWeeklyData(obj);
+
+      },
+
+      (err) => {
+
+        console.error(err);
+
+        setErrorMsg(
+          'Firestore Rules menolak akses weeklyData'
+        );
+
+        setLoading(false);
+
+      }
+
+    );
+
+    const unsubMonthly = onSnapshot(
+
+      monthlyRef,
+
+      (snapshot) => {
+
+        const obj = {};
+
+        snapshot.forEach((d) => {
+
+          obj[d.id] = d.data();
+
+        });
+
+        setMonthlyData(obj);
+
+      },
+
+      (err) => {
+
+        console.error(err);
+
+        setErrorMsg(
+          'Firestore Rules menolak akses monthlyData'
+        );
+
+        setLoading(false);
+
+      }
+
+    );
 
     return () => {
 
@@ -287,9 +353,9 @@ export default function App() {
 
   }, [user]);
 
-  // ======================================================
-  // ADD PERSONNEL
-  // ======================================================
+  // =====================================================
+  // PERSONNEL
+  // =====================================================
 
   const handleAddPersonnel = async (e) => {
 
@@ -297,62 +363,82 @@ export default function App() {
 
     if (!newEmp.nama.trim()) return;
 
-    const id =
-      Date.now().toString() +
-      Math.random().toString(36).substring(2, 5);
+    try {
 
-    const ref = doc(
-      db,
-      'artifacts',
-      APP_ID,
-      'public',
-      'data',
-      'personnel',
-      id
-    );
+      const id =
+        Date.now().toString() +
+        Math.random().toString(36).substring(2, 5);
 
-    await setDoc(ref, {
-      ...newEmp,
-      id
-    });
+      const ref = doc(
+        db,
+        'artifacts',
+        APP_ID,
+        'public',
+        'data',
+        'personnel',
+        id
+      );
 
-    setNewEmp({
-      nama: '',
-      area: 'C',
-      role: 'SO'
-    });
+      await setDoc(ref, {
+        ...newEmp,
+        id
+      });
+
+      setNewEmp({
+        nama: '',
+        area: 'C',
+        role: 'SO'
+      });
+
+    } catch (err) {
+
+      console.error(err);
+
+      alert('Gagal tambah pegawai');
+
+    }
 
   };
 
-  // ======================================================
-  // DELETE PERSONNEL
-  // ======================================================
+  // =====================================================
+  // DELETE
+  // =====================================================
 
   const handleDeletePersonnel = async (id) => {
 
     const ok = window.confirm(
-      'Hapus pegawai ini?'
+      'Hapus pegawai ini ?'
     );
 
     if (!ok) return;
 
-    const ref = doc(
-      db,
-      'artifacts',
-      APP_ID,
-      'public',
-      'data',
-      'personnel',
-      id
-    );
+    try {
 
-    await deleteDoc(ref);
+      const ref = doc(
+        db,
+        'artifacts',
+        APP_ID,
+        'public',
+        'data',
+        'personnel',
+        id
+      );
+
+      await deleteDoc(ref);
+
+    } catch (err) {
+
+      console.error(err);
+
+      alert('Gagal hapus pegawai');
+
+    }
 
   };
 
-  // ======================================================
+  // =====================================================
   // PROCESS PASTE
-  // ======================================================
+  // =====================================================
 
   const handleProcessPaste = async () => {
 
@@ -364,89 +450,95 @@ export default function App() {
 
     }
 
-    const lines = pasteText.split('\n');
+    try {
 
-    const updates = {};
+      const lines = pasteText.split('\n');
 
-    let success = 0;
+      const updates = {};
 
-    let failed = [];
+      let success = 0;
 
-    lines.forEach((line) => {
+      lines.forEach((line) => {
 
-      const parts = line
-        .split('\t')
-        .map((p) => p.trim());
+        const parts = line
+          .split('\t')
+          .map((p) => p.trim());
 
-      if (parts.length < 2) return;
+        if (parts.length < 2) return;
 
-      const nama = parts[0];
+        const nama = parts[0];
 
-      const nilai =
-        parseFloat(parts[1]) || 0;
+        const nilai =
+          parseFloat(parts[1]) || 0;
 
-      const emp = personnel.find(
-        (p) =>
-          p.nama.toLowerCase() ===
-            nama.toLowerCase() &&
-          p.role === selectedRole
-      );
+        const emp = personnel.find(
+          (p) =>
+            p.nama.toLowerCase() ===
+              nama.toLowerCase() &&
+            p.role === selectedRole
+        );
 
-      if (!emp) {
+        if (!emp) return;
 
-        failed.push(nama);
+        if (!updates[emp.id]) {
 
-        return;
+          updates[emp.id] = {};
 
-      }
+        }
 
-      if (!updates[emp.id]) {
+        if (!updates[emp.id][selectedWeek]) {
 
-        updates[emp.id] = {};
+          updates[emp.id][selectedWeek] = {};
 
-      }
+        }
 
-      if (!updates[emp.id][selectedWeek]) {
+        updates[emp.id][selectedWeek][selectedIndicator] = nilai;
 
-        updates[emp.id][selectedWeek] = {};
+        success++;
 
-      }
-
-      updates[emp.id][selectedWeek][selectedIndicator] = nilai;
-
-      success++;
-
-    });
-
-    for (const empId of Object.keys(updates)) {
-
-      const ref = doc(
-        db,
-        'artifacts',
-        APP_ID,
-        'public',
-        'data',
-        'weeklyData',
-        empId
-      );
-
-      await setDoc(ref, updates[empId], {
-        merge: true
       });
+
+      for (const empId of Object.keys(updates)) {
+
+        const ref = doc(
+          db,
+          'artifacts',
+          APP_ID,
+          'public',
+          'data',
+          'weeklyData',
+          empId
+        );
+
+        await setDoc(
+          ref,
+          updates[empId],
+          {
+            merge: true
+          }
+        );
+
+      }
+
+      setPasteText('');
+
+      alert(
+        `${success} data berhasil disimpan`
+      );
+
+    } catch (err) {
+
+      console.error(err);
+
+      alert('Gagal proses paste');
 
     }
 
-    setPasteText('');
-
-    alert(
-      `Berhasil: ${success}\nGagal: ${failed.length}`
-    );
-
   };
 
-  // ======================================================
+  // =====================================================
   // MONTHLY INPUT
-  // ======================================================
+  // =====================================================
 
   const handleMonthlyInput = async (
     empId,
@@ -454,31 +546,39 @@ export default function App() {
     value
   ) => {
 
-    const ref = doc(
-      db,
-      'artifacts',
-      APP_ID,
-      'public',
-      'data',
-      'monthlyData',
-      empId
-    );
+    try {
 
-    await setDoc(
-      ref,
-      {
-        [field]: value
-      },
-      {
-        merge: true
-      }
-    );
+      const ref = doc(
+        db,
+        'artifacts',
+        APP_ID,
+        'public',
+        'data',
+        'monthlyData',
+        empId
+      );
+
+      await setDoc(
+        ref,
+        {
+          [field]: value
+        },
+        {
+          merge: true
+        }
+      );
+
+    } catch (err) {
+
+      console.error(err);
+
+    }
 
   };
 
-  // ======================================================
+  // =====================================================
   // ACCUMULATE
-  // ======================================================
+  // =====================================================
 
   const getAccumulatedData = (
     empId,
@@ -511,66 +611,38 @@ export default function App() {
 
   };
 
-  // ======================================================
+  // =====================================================
   // GRADE
-  // ======================================================
+  // =====================================================
 
   const calculateGrade = (
-    score,
-    kepatuhan,
-    ket
+    score
   ) => {
 
-    const txt =
-      (ket || '').toLowerCase();
+    if (score >= 170) return 'A';
 
-    if (
-      score >= 170 &&
-      kepatuhan === 100
-    ) {
-      return 'A';
-    }
+    if (score >= 141) return 'B';
 
-    if (
-      score >= 141 &&
-      score <= 169 &&
-      kepatuhan === 100
-    ) {
-      return 'B';
-    }
-
-    if (
-      score >= 100 &&
-      score <= 140
-    ) {
-      return 'C';
-    }
-
-    if (
-      txt.includes('cuti') ||
-      txt.includes('ijin')
-    ) {
-      return 'C';
-    }
+    if (score >= 100) return 'C';
 
     return 'D';
 
   };
 
-  // ======================================================
+  // =====================================================
   // FILTER
-  // ======================================================
+  // =====================================================
 
   const filteredPersonnel =
     personnel.filter(
       (p) => p.role === selectedRole
     );
 
-  // ======================================================
+  // =====================================================
   // LOADING
-  // ======================================================
+  // =====================================================
 
-  if (!isReady) {
+  if (loading) {
 
     return (
 
@@ -578,9 +650,9 @@ export default function App() {
 
         <div className="text-center">
 
-          <div className="animate-spin rounded-full h-20 w-20 border-b-4 border-emerald-700 mx-auto mb-5"></div>
+          <div className="animate-spin rounded-full h-24 w-24 border-b-4 border-emerald-700 mx-auto mb-5"></div>
 
-          <p className="font-bold text-emerald-700">
+          <p className="text-emerald-700 font-bold text-lg">
             Menghubungkan Database...
           </p>
 
@@ -592,9 +664,61 @@ export default function App() {
 
   }
 
-  // ======================================================
+  // =====================================================
+  // ERROR
+  // =====================================================
+
+  if (errorMsg) {
+
+    return (
+
+      <div className="min-h-screen flex items-center justify-center bg-red-50 p-10">
+
+        <div className="bg-white rounded-xl shadow-xl p-8 max-w-xl w-full">
+
+          <h1 className="text-2xl font-bold text-red-600 mb-4">
+            Firebase Error
+          </h1>
+
+          <p className="mb-4 text-slate-700">
+            {errorMsg}
+          </p>
+
+          <div className="bg-slate-100 p-4 rounded text-sm">
+
+            <p className="font-bold mb-2">
+              Pastikan:
+            </p>
+
+            <ul className="list-disc ml-5 space-y-1">
+
+              <li>
+                Anonymous Auth aktif
+              </li>
+
+              <li>
+                Firestore Rules allow read/write
+              </li>
+
+              <li>
+                Firestore Database sudah dibuat
+              </li>
+
+            </ul>
+
+          </div>
+
+        </div>
+
+      </div>
+
+    );
+
+  }
+
+  // =====================================================
   // UI
-  // ======================================================
+  // =====================================================
 
   return (
 
@@ -608,10 +732,10 @@ export default function App() {
 
           <div className="max-w-7xl mx-auto px-6 py-5 flex justify-between items-center">
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
 
               <CheckCircle
-                size={36}
+                size={40}
                 className="text-emerald-300"
               />
 
@@ -621,7 +745,7 @@ export default function App() {
                   KPI HSE BUFN 2
                 </h1>
 
-                <p className="text-sm text-emerald-200">
+                <p className="text-emerald-200 text-sm">
                   Firebase Cloud Connected
                 </p>
 
@@ -629,7 +753,7 @@ export default function App() {
 
             </div>
 
-            <div className="bg-emerald-900 px-4 py-2 rounded text-xs font-bold">
+            <div className="bg-emerald-900 px-4 py-2 rounded-lg text-xs font-bold">
               ONLINE
             </div>
 
@@ -688,9 +812,9 @@ export default function App() {
 
               {/* FORM */}
 
-              <div className="bg-white rounded-xl p-6 shadow">
+              <div className="bg-white p-6 rounded-xl shadow">
 
-                <h2 className="font-bold text-lg mb-5">
+                <h2 className="font-bold text-lg mb-4">
                   Tambah Pegawai
                 </h2>
 
@@ -702,7 +826,7 @@ export default function App() {
                   <input
                     type="text"
                     placeholder="Nama Pegawai"
-                    className="w-full border rounded-lg p-3"
+                    className="w-full border p-3 rounded-lg"
                     value={newEmp.nama}
                     onChange={(e) =>
                       setNewEmp({
@@ -713,7 +837,7 @@ export default function App() {
                   />
 
                   <select
-                    className="w-full border rounded-lg p-3"
+                    className="w-full border p-3 rounded-lg"
                     value={newEmp.area}
                     onChange={(e) =>
                       setNewEmp({
@@ -733,11 +857,10 @@ export default function App() {
                     <option value="F">
                       Area F
                     </option>
-
                   </select>
 
                   <select
-                    className="w-full border rounded-lg p-3"
+                    className="w-full border p-3 rounded-lg"
                     value={newEmp.role}
                     onChange={(e) =>
                       setNewEmp({
@@ -746,7 +869,6 @@ export default function App() {
                       })
                     }
                   >
-
                     <option value="SO">
                       Safety Officer
                     </option>
@@ -754,7 +876,6 @@ export default function App() {
                     <option value="WFSO">
                       Wakil Foreman
                     </option>
-
                   </select>
 
                   <button
@@ -770,9 +891,9 @@ export default function App() {
 
               {/* TABLE */}
 
-              <div className="lg:col-span-2 bg-white rounded-xl p-6 shadow overflow-auto">
+              <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow overflow-auto">
 
-                <h2 className="font-bold text-lg mb-5">
+                <h2 className="font-bold text-lg mb-4">
                   Daftar Pegawai
                 </h2>
 
@@ -782,7 +903,7 @@ export default function App() {
 
                     <tr>
 
-                      <th className="text-left p-3">
+                      <th className="p-3 text-left">
                         Nama
                       </th>
 
@@ -795,7 +916,7 @@ export default function App() {
                       </th>
 
                       <th className="p-3">
-                        Aksi
+                        Hapus
                       </th>
 
                     </tr>
@@ -833,9 +954,7 @@ export default function App() {
                             }
                             className="text-red-500"
                           >
-
                             <Trash2 size={18} />
-
                           </button>
 
                         </td>
@@ -849,418 +968,6 @@ export default function App() {
                 </table>
 
               </div>
-
-            </div>
-
-          )}
-
-          {/* INPUT */}
-
-          {activeTab === 'input' && (
-
-            <div className="bg-white rounded-xl p-6 shadow">
-
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-                <div>
-
-                  <h2 className="font-bold mb-4">
-                    Input Mingguan
-                  </h2>
-
-                  <div className="space-y-4">
-
-                    <select
-                      className="w-full border p-3 rounded-lg"
-                      value={selectedRole}
-                      onChange={(e) =>
-                        setSelectedRole(
-                          e.target.value
-                        )
-                      }
-                    >
-
-                      <option value="SO">
-                        SO
-                      </option>
-
-                      <option value="WFSO">
-                        WFSO
-                      </option>
-
-                    </select>
-
-                    <select
-                      className="w-full border p-3 rounded-lg"
-                      value={selectedWeek}
-                      onChange={(e) =>
-                        setSelectedWeek(
-                          e.target.value
-                        )
-                      }
-                    >
-
-                      {weeks.map((w) => (
-
-                        <option
-                          key={w.id}
-                          value={w.id}
-                        >
-                          {w.label}
-                        </option>
-
-                      ))}
-
-                    </select>
-
-                    <select
-                      className="w-full border p-3 rounded-lg"
-                      value={selectedIndicator}
-                      onChange={(e) =>
-                        setSelectedIndicator(
-                          e.target.value
-                        )
-                      }
-                    >
-
-                      {getCategories(
-                        selectedRole
-                      ).map((c) => (
-
-                        <option
-                          key={c.key}
-                          value={c.key}
-                        >
-                          {c.label}
-                        </option>
-
-                      ))}
-
-                    </select>
-
-                    <textarea
-                      className="w-full border rounded-lg p-3 h-64 font-mono text-sm"
-                      placeholder="Nama[TAB]Nilai"
-                      value={pasteText}
-                      onChange={(e) =>
-                        setPasteText(
-                          e.target.value
-                        )
-                      }
-                    />
-
-                    <button
-                      onClick={
-                        handleProcessPaste
-                      }
-                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold p-3 rounded-lg"
-                    >
-                      Simpan Data
-                    </button>
-
-                  </div>
-
-                </div>
-
-                <div className="lg:col-span-2 overflow-auto">
-
-                  <table className="w-full text-sm">
-
-                    <thead className="bg-slate-100">
-
-                      <tr>
-
-                        <th className="p-3 text-left">
-                          Nama
-                        </th>
-
-                        {getCategories(
-                          selectedRole
-                        ).map((c) => (
-
-                          <th
-                            key={c.key}
-                            className="p-3"
-                          >
-                            {c.label}
-                          </th>
-
-                        ))}
-
-                      </tr>
-
-                    </thead>
-
-                    <tbody>
-
-                      {filteredPersonnel.map(
-                        (p) => {
-
-                          const data =
-                            weeklyData[
-                              p.id
-                            ]?.[
-                              selectedWeek
-                            ] || {};
-
-                          return (
-
-                            <tr
-                              key={p.id}
-                              className="border-b"
-                            >
-
-                              <td className="p-3">
-                                {p.nama}
-                              </td>
-
-                              {getCategories(
-                                selectedRole
-                              ).map((c) => (
-
-                                <td
-                                  key={c.key}
-                                  className="text-center"
-                                >
-                                  {data[
-                                    c.key
-                                  ] || '-'}
-                                </td>
-
-                              ))}
-
-                            </tr>
-
-                          );
-
-                        }
-                      )}
-
-                    </tbody>
-
-                  </table>
-
-                </div>
-
-              </div>
-
-            </div>
-
-          )}
-
-          {/* LAPORAN */}
-
-          {activeTab === 'laporan' && (
-
-            <div className="bg-white rounded-xl p-6 shadow overflow-auto">
-
-              <h2 className="text-xl font-bold mb-6">
-                Laporan KPI
-              </h2>
-
-              <table className="w-full text-sm">
-
-                <thead className="bg-slate-800 text-white">
-
-                  <tr>
-
-                    <th className="p-3 text-left">
-                      Nama
-                    </th>
-
-                    {getCategories(
-                      selectedRole
-                    ).map((c) => (
-
-                      <th
-                        key={c.key}
-                        className="p-3"
-                      >
-                        {c.label}
-                      </th>
-
-                    ))}
-
-                    <th className="p-3">
-                      Pelanggaran
-                    </th>
-
-                    <th className="p-3">
-                      Kepatuhan
-                    </th>
-
-                    <th className="p-3">
-                      Skor
-                    </th>
-
-                    <th className="p-3">
-                      Grade
-                    </th>
-
-                  </tr>
-
-                </thead>
-
-                <tbody>
-
-                  {filteredPersonnel.map(
-                    (p) => {
-
-                      const acc =
-                        getAccumulatedData(
-                          p.id,
-                          selectedRole
-                        );
-
-                      const monthly =
-                        monthlyData[
-                          p.id
-                        ] || {};
-
-                      const pelanggaran =
-                        monthly.pelanggaran ||
-                        0;
-
-                      const kepatuhan =
-                        monthly.kepatuhan ||
-                        75;
-
-                      const keterangan =
-                        monthly.keterangan ||
-                        '';
-
-                      const total =
-                        Object.values(acc)
-                          .reduce(
-                            (a, b) =>
-                              a + b,
-                            0
-                          ) +
-                        kepatuhan -
-                        pelanggaran * 5;
-
-                      const grade =
-                        calculateGrade(
-                          total,
-                          kepatuhan,
-                          keterangan
-                        );
-
-                      return (
-
-                        <tr
-                          key={p.id}
-                          className="border-b"
-                        >
-
-                          <td className="p-3 font-semibold">
-                            {p.nama}
-                          </td>
-
-                          {getCategories(
-                            selectedRole
-                          ).map((c) => (
-
-                            <td
-                              key={c.key}
-                              className="text-center"
-                            >
-                              {acc[
-                                c.key
-                              ] || 0}
-                            </td>
-
-                          ))}
-
-                          <td className="text-center">
-
-                            <input
-                              type="number"
-                              className="border rounded p-1 w-20 text-center"
-                              value={
-                                pelanggaran
-                              }
-                              onChange={(
-                                e
-                              ) =>
-                                handleMonthlyInput(
-                                  p.id,
-                                  'pelanggaran',
-                                  parseInt(
-                                    e
-                                      .target
-                                      .value
-                                  ) || 0
-                                )
-                              }
-                            />
-
-                          </td>
-
-                          <td className="text-center">
-
-                            <select
-                              className="border rounded p-1"
-                              value={
-                                kepatuhan
-                              }
-                              onChange={(
-                                e
-                              ) =>
-                                handleMonthlyInput(
-                                  p.id,
-                                  'kepatuhan',
-                                  parseInt(
-                                    e
-                                      .target
-                                      .value
-                                  )
-                                )
-                              }
-                            >
-
-                              <option value="25">
-                                25
-                              </option>
-
-                              <option value="50">
-                                50
-                              </option>
-
-                              <option value="75">
-                                75
-                              </option>
-
-                              <option value="100">
-                                100
-                              </option>
-
-                            </select>
-
-                          </td>
-
-                          <td className="text-center font-bold text-emerald-700">
-                            {total}
-                          </td>
-
-                          <td className="text-center">
-
-                            <span className="bg-emerald-600 text-white px-3 py-1 rounded-full font-bold">
-                              {grade}
-                            </span>
-
-                          </td>
-
-                        </tr>
-
-                      );
-
-                    }
-                  )}
-
-                </tbody>
-
-              </table>
 
             </div>
 
