@@ -1,0 +1,13 @@
+{
+  "name": "hse-app",
+  "version": "1.0.0",
+  "dependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "firebase": "^11.6.1",
+    "lucide-react": "^0.400.0"
+  },
+  "scripts": {
+    "build": "vite build"
+  }
+}
