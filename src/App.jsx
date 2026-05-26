@@ -1,6 +1,6 @@
 /* eslint-disable no-undef */
 import React, { useState, useEffect } from 'react';
-import { Database, ClipboardPaste, Calculator, CheckCircle, AlertCircle, Info, Table, UserPlus, Trash2, Edit, AlertTriangle } from 'lucide-react';
+import { Database, ClipboardPaste, Calculator, CheckCircle, AlertCircle, Info, Table, UserPlus, Trash2, Edit, AlertTriangle, Download } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAnalytics } from 'firebase/analytics';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
@@ -23,7 +23,7 @@ const getFirebaseConfig = () => {
   if (isCanvas) {
     return JSON.parse(__firebase_config);
   }
-  return firebaseConfig; // SUDAH DIPERBAIKI DI SINI
+  return firebaseConfig; 
 };
 
 const app = initializeApp(getFirebaseConfig());
@@ -57,13 +57,12 @@ export default function App() {
   const [selectedIndicator, setSelectedIndicator] = useState('obs');
   const [pasteText, setPasteText] = useState('');
 
-  // STATE BARU: Untuk fitur Edit dan Hapus (Modal)
   const [editingId, setEditingId] = useState(null);
   const [editFormData, setEditFormData] = useState({ nama: '', area: '', role: '' });
   const [deleteModal, setDeleteModal] = useState({ show: false, id: null, nama: '' });
 
-  // Menggunakan ID murni agar tidak terblokir oleh aturan keamanan Firestore
   const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'bufn2-kpi-app';
+  const areaList = ['C', 'E', 'F']; // Daftar Area untuk pemisahan tabel
 
   const weeks = [
     { id: 'w1', label: 'Minggu 1' }, { id: 'w2', label: 'Minggu 2' },
@@ -135,15 +134,12 @@ export default function App() {
   const handleAddPersonnel = async (e) => {
     e.preventDefault();
     if (!newEmp.nama.trim()) return;
-    
     const newId = Date.now().toString() + Math.random().toString(36).substr(2, 5);
     const docRef = doc(db, 'artifacts', getAppId(), 'public', 'data', 'personnel', newId);
-    
     await setDoc(docRef, { ...newEmp, id: newId });
     setNewEmp({ nama: '', area: 'C', role: 'SO' });
   };
 
-  // FUNGSI BARU: Logika Edit
   const handleEditClick = (Karyawan) => {
     setEditingId(Karyawan.id);
     setEditFormData({ nama: Karyawan.nama, area: Karyawan.area, role: Karyawan.role });
@@ -156,14 +152,9 @@ export default function App() {
     setEditingId(null);
   };
 
-  const cancelEdit = () => {
-    setEditingId(null);
-  };
+  const cancelEdit = () => setEditingId(null);
 
-  // FUNGSI BARU: Logika Hapus dengan Modal
-  const requestDelete = (id, nama) => {
-    setDeleteModal({ show: true, id, nama });
-  };
+  const requestDelete = (id, nama) => setDeleteModal({ show: true, id, nama });
 
   const confirmDelete = async () => {
     const docRef = doc(db, 'artifacts', getAppId(), 'public', 'data', 'personnel', deleteModal.id);
@@ -172,15 +163,9 @@ export default function App() {
   };
 
   const handleProcessPaste = async () => {
-    if (!pasteText.trim()) {
-      alert('Silahkan masukkan teks data terlebih dahulu.');
-      return;
-    }
-
+    if (!pasteText.trim()) { alert('Silahkan masukkan teks data terlebih dahulu.'); return; }
     const lines = pasteText.split('\n');
-    let successCount = 0;
-    let failedNames = [];
-    const updates = {};
+    let successCount = 0; let failedNames = []; const updates = {};
 
     lines.forEach(line => {
       const parts = line.split('\t').map(p => p.trim()).filter(p => p !== '');
@@ -188,8 +173,8 @@ export default function App() {
 
       let namaPaste = parts[0];
       let nilai = 0;
-
       const isAreaColumn = ['C', 'E', 'F'].includes(parts[1].toUpperCase());
+      
       if (isAreaColumn && parts.length >= 3) {
         nilai = parseFloat(parts[2].replace(',', '.')) || 0;
       } else {
@@ -197,7 +182,6 @@ export default function App() {
       }
 
       const emp = personnel.find(p => p.nama.toLowerCase() === namaPaste.toLowerCase() && p.role === selectedRoleContext);
-
       if (emp) {
         if (!updates[emp.id]) updates[emp.id] = {};
         if (!updates[emp.id][selectedWeek]) updates[emp.id][selectedWeek] = {};
@@ -212,7 +196,6 @@ export default function App() {
       const docRef = doc(db, 'artifacts', getAppId(), 'public', 'data', 'weeklyData', empId);
       await setDoc(docRef, updates[empId], { merge: true });
     }
-
     setPasteText('');
     let msg = `Berhasil memproses & memasukkan ${successCount} data capaian!`;
     if (failedNames.length > 0) {
@@ -244,6 +227,49 @@ export default function App() {
     if (skorAkhir >= 141 && skorAkhir <= 169 && kepatuhan === 100) return "B";
     if (skorAkhir >= 100 && skorAkhir <= 140 && kepatuhan === 100) return "C";
     return "D";
+  };
+
+  // FUNGSI BARU: Export Data ke Excel (Format CSV)
+  const exportToExcel = (area, personnelList) => {
+    const cats = getActiveCategories(selectedRoleContext);
+    
+    // Header Excel
+    let csvContent = "Nama,Area,";
+    cats.forEach(c => csvContent += `"${c.label}",`);
+    csvContent += "Skor Awal,+ Poin,Pelanggaran,Penalti,Kepatuhan,Keterangan,Skor Akhir,Nilai\n";
+
+    // Data Baris Excel
+    personnelList.forEach(p => {
+      const acc = getAccumulatedData(p.id, selectedRoleContext);
+      const um = monthlyData[p.id] || { kepatuhan: 75, pelanggaran: 0, keterangan: '' };
+      let sAwal = 100, tPoin = 0, penalti = -(um.pelanggaran * 5), sAkhir = 0;
+      
+      if (selectedRoleContext === 'SO') {
+        sAwal = 100 - ( (acc.obs>=200?0:(200-acc.obs)/200*25) + (acc.iden>=16?0:(16-acc.iden)/16*25) + (acc.st>=8?0:(8-acc.st)/8*25) + (acc.ss>=28?0:(28-acc.ss)/28*25) );
+        tPoin = (acc.si||0) + (acc.ps||0) + parseInt(um.kepatuhan);
+      } else {
+        sAwal = 100 - ( (acc.obs>=140?0:(140-acc.obs)/140*20) + (acc.iden>=12?0:(12-acc.iden)/12*20) + (acc.ste>=8?0:(8-acc.ste)/8*20) + (acc.st>=8?0:(8-acc.st)/8*20) + (acc.ss>=20?0:(20-acc.ss)/20*20) );
+        tPoin = (acc.si||0) + (acc.ps||0) + parseInt(um.kepatuhan);
+      }
+      if(sAwal < 0) sAwal = 0;
+      sAkhir = sAwal + tPoin + penalti;
+      const grade = calculateGrade(sAkhir, parseInt(um.kepatuhan), um.keterangan);
+
+      let row = `"${p.nama}","${p.area}",`;
+      cats.forEach(c => row += `"${acc[c.key]||0}",`);
+      row += `"${sAwal.toFixed(1)}","${tPoin}","${um.pelanggaran}","${penalti}","${um.kepatuhan}","${um.keterangan}","${sAkhir.toFixed(1)}","${grade}"\n`;
+      csvContent += row;
+    });
+
+    // Proses Download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Laporan_KPI_${selectedRoleContext}_Area_${area}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const filteredPersonnel = personnel.filter(p => p.role === selectedRoleContext);
@@ -318,12 +344,9 @@ export default function App() {
               <tbody>
                 {personnel.map(p => (
                   <tr key={p.id} className="border-b hover:bg-slate-50">
-                    {/* MODE EDIT JIKA ID COCOK */}
                     {editingId === p.id ? (
                       <>
-                        <td className="p-2">
-                          <input type="text" className="border rounded p-1 w-full" value={editFormData.nama} onChange={(e) => setEditFormData({...editFormData, nama: e.target.value})} />
-                        </td>
+                        <td className="p-2"><input type="text" className="border rounded p-1 w-full" value={editFormData.nama} onChange={(e) => setEditFormData({...editFormData, nama: e.target.value})} /></td>
                         <td className="p-2">
                           <select className="border rounded p-1" value={editFormData.area} onChange={(e) => setEditFormData({...editFormData, area: e.target.value})}>
                             <option value="C">Area C</option><option value="E">Area E</option><option value="F">Area F</option>
@@ -340,18 +363,13 @@ export default function App() {
                         </td>
                       </>
                     ) : (
-                      // TAMPILAN NORMAL
                       <>
                         <td className="p-3">{p.nama}</td>
                         <td className="p-3 font-bold text-slate-500">{p.area}</td>
                         <td className="p-3">{p.role === 'SO' ? 'Safety Officer' : 'Wakil Foreman'}</td>
                         <td className="p-3 text-center space-x-3">
-                          <button onClick={() => handleEditClick(p)} className="text-blue-500 hover:text-blue-700" title="Edit">
-                            <Edit size={18}/>
-                          </button>
-                          <button onClick={() => requestDelete(p.id, p.nama)} className="text-red-500 hover:text-red-700" title="Hapus">
-                            <Trash2 size={18}/>
-                          </button>
+                          <button onClick={() => handleEditClick(p)} className="text-blue-500 hover:text-blue-700" title="Edit"><Edit size={18}/></button>
+                          <button onClick={() => requestDelete(p.id, p.nama)} className="text-red-500 hover:text-red-700" title="Hapus"><Trash2 size={18}/></button>
                         </td>
                       </>
                     )}
@@ -387,25 +405,39 @@ export default function App() {
                   <button onClick={handleProcessPaste} className="w-full bg-emerald-600 text-white font-bold py-3 mt-3 rounded">Proses Data</button>
                 </div>
                 <div>
-                  <h2 className="font-bold mb-4">Preview Data ({selectedRoleContext})</h2>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead className="bg-slate-100">
-                        <tr><th className="p-2 text-left">Nama</th>{getActiveCategories(selectedRoleContext).map(c => <th key={c.key} className="p-2">{c.label}</th>)}</tr>
-                      </thead>
-                      <tbody>
-                        {filteredPersonnel.map(p => {
-                          const wData = weeklyData[p.id]?.[selectedWeek] || {};
-                          return (
-                            <tr key={p.id} className="border-b">
-                              <td className="p-2">{p.nama}</td>
-                              {getActiveCategories(selectedRoleContext).map(c => <td key={c.key} className="p-2 text-center">{wData[c.key] || '-'}</td>)}
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                  <h2 className="font-bold mb-4">Preview Data ({selectedRoleContext === 'SO' ? 'Safety Officer' : 'Wakil Foreman'})</h2>
+                  
+                  {/* Pemisahan Tabel Preview Berdasarkan Area */}
+                  {areaList.map(area => {
+                    const areaPersonnel = filteredPersonnel.filter(p => p.area === area);
+                    if (areaPersonnel.length === 0) return null; // Sembunyikan area yang kosong
+
+                    return (
+                      <div key={area} className="mb-6">
+                        <div className="bg-slate-200 px-3 py-2 rounded-t-lg font-bold text-slate-700 text-sm flex items-center gap-2">
+                          <CheckCircle size={16} className="text-emerald-600"/> Area {area}
+                        </div>
+                        <div className="overflow-x-auto border border-t-0 rounded-b-lg border-slate-200">
+                          <table className="w-full text-xs">
+                            <thead className="bg-slate-50 border-b">
+                              <tr><th className="p-2 text-left">Nama</th>{getActiveCategories(selectedRoleContext).map(c => <th key={c.key} className="p-2">{c.label}</th>)}</tr>
+                            </thead>
+                            <tbody>
+                              {areaPersonnel.map(p => {
+                                const wData = weeklyData[p.id]?.[selectedWeek] || {};
+                                return (
+                                  <tr key={p.id} className="border-b last:border-b-0 hover:bg-slate-50">
+                                    <td className="p-2">{p.nama}</td>
+                                    {getActiveCategories(selectedRoleContext).map(c => <td key={c.key} className="p-2 text-center">{wData[c.key] || '-'}</td>)}
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
              </div>
           </div>
@@ -413,63 +445,82 @@ export default function App() {
 
         {/* TAB LAPORAN */}
         {activeTab === 'laporan' && (
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
-             <h2 className="font-bold text-xl mb-4">Rekap Laporan {selectedRoleContext === 'SO' ? 'Safety Officer' : 'Wakil Foreman'}</h2>
-             <table className="w-full text-xs border-collapse whitespace-nowrap">
-                <thead className="bg-slate-800 text-white">
-                  <tr>
-                    <th className="p-3 text-left">Nama</th>
-                    <th className="p-3">Area</th> {/* KOLOM AREA DITAMBAHKAN */}
-                    {getActiveCategories(selectedRoleContext).map(c => <th key={c.key} className="p-3">{c.label}</th>)}
-                    <th className="p-3 bg-slate-700">Skor Awal</th>
-                    <th className="p-3 bg-slate-700">+ Poin</th>
-                    <th className="p-3 bg-slate-700">Pelanggaran</th>
-                    <th className="p-3 bg-slate-700">Penalti</th>
-                    <th className="p-3 bg-emerald-900">Kepatuhan</th>
-                    <th className="p-3 bg-emerald-900">Ket.</th>
-                    <th className="p-3 bg-emerald-700">SKOR AKHIR</th>
-                    <th className="p-3 bg-emerald-600">NILAI</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredPersonnel.map(p => {
-                    const acc = getAccumulatedData(p.id, selectedRoleContext);
-                    const um = monthlyData[p.id] || { kepatuhan: 75, pelanggaran: 0, keterangan: '' };
-                    let sAwal = 100, tPoin = 0, penalti = -(um.pelanggaran * 5), sAkhir = 0;
-                    
-                    if (selectedRoleContext === 'SO') {
-                      sAwal = 100 - ( (acc.obs>=200?0:(200-acc.obs)/200*25) + (acc.iden>=16?0:(16-acc.iden)/16*25) + (acc.st>=8?0:(8-acc.st)/8*25) + (acc.ss>=28?0:(28-acc.ss)/28*25) );
-                      tPoin = (acc.si||0) + (acc.ps||0) + parseInt(um.kepatuhan);
-                    } else {
-                      sAwal = 100 - ( (acc.obs>=140?0:(140-acc.obs)/140*20) + (acc.iden>=12?0:(12-acc.iden)/12*20) + (acc.ste>=8?0:(8-acc.ste)/8*20) + (acc.st>=8?0:(8-acc.st)/8*20) + (acc.ss>=20?0:(20-acc.ss)/20*20) );
-                      tPoin = (acc.si||0) + (acc.ps||0) + parseInt(um.kepatuhan);
-                    }
-                    if(sAwal < 0) sAwal = 0;
-                    sAkhir = sAwal + tPoin + penalti;
-                    const grade = calculateGrade(sAkhir, parseInt(um.kepatuhan), um.keterangan);
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+             <h2 className="font-bold text-xl mb-6 pb-2 border-b border-slate-200">Rekap Laporan {selectedRoleContext === 'SO' ? 'Safety Officer' : 'Wakil Foreman'}</h2>
+             
+             {/* Pemisahan Tabel Laporan Berdasarkan Area */}
+             {areaList.map(area => {
+                const areaPersonnel = filteredPersonnel.filter(p => p.area === area);
+                if (areaPersonnel.length === 0) return null;
 
-                    return (
-                      <tr key={p.id} className="border-b hover:bg-slate-50">
-                        <td className="p-3 font-bold">{p.nama}</td>
-                        <td className="p-3 text-center font-bold text-slate-500 bg-slate-50/50">{p.area}</td> {/* DATA AREA DITAMBAHKAN */}
-                        {getActiveCategories(selectedRoleContext).map(c => <td key={c.key} className="p-3 text-center border-l">{acc[c.key]||0}</td>)}
-                        <td className="p-3 text-center border-l bg-slate-50">{sAwal.toFixed(1)}</td>
-                        <td className="p-3 text-center bg-slate-50">{tPoin}</td>
-                        <td className="p-2 text-center bg-red-50/30 border-l"><input type="number" className="w-12 border p-1" value={um.pelanggaran} onChange={e=>handleMonthlyInput(p.id, 'pelanggaran', e.target.value)}/></td>
-                        <td className="p-3 text-center text-red-600 bg-red-50/30">{penalti}</td>
-                        <td className="p-2 text-center border-l bg-emerald-50/30">
-                          <select className="border p-1" value={um.kepatuhan} onChange={e=>handleMonthlyInput(p.id, 'kepatuhan', e.target.value)}>
-                            <option value="25">25</option><option value="50">50</option><option value="75">75</option><option value="100">100</option>
-                          </select>
-                        </td>
-                        <td className="p-2 bg-emerald-50/30"><input type="text" className="w-20 border p-1 text-xs" placeholder="Cuti/Ijin" value={um.keterangan} onChange={e=>handleMonthlyInput(p.id, 'keterangan', e.target.value)}/></td>
-                        <td className="p-3 text-center font-bold text-emerald-800 bg-emerald-100/50">{sAkhir.toFixed(1)}</td>
-                        <td className="p-3 text-center"><span className={`px-2 py-1 rounded text-white font-bold ${grade==='A'?'bg-green-500':grade==='B'?'bg-lime-500':grade==='C'?'bg-yellow-500':'bg-red-500'}`}>{grade}</span></td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-             </table>
+                return (
+                  <div key={area} className="mb-10 overflow-x-auto">
+                    <div className="flex justify-between items-center bg-slate-800 text-white px-4 py-3 rounded-t-lg">
+                      <h3 className="font-bold text-lg flex items-center gap-2">
+                        <Table size={20} className="text-emerald-400" /> Area {area}
+                      </h3>
+                      <button onClick={() => exportToExcel(area, areaPersonnel)} className="bg-emerald-600 hover:bg-emerald-500 transition-colors text-white text-xs font-bold px-3 py-1.5 rounded flex items-center gap-2 shadow">
+                        <Download size={14} /> Export Excel
+                      </button>
+                    </div>
+                    <table className="w-full text-xs border-collapse whitespace-nowrap border border-slate-300">
+                      <thead className="bg-slate-700 text-white">
+                        <tr>
+                          <th className="p-3 text-left">Nama</th>
+                          <th className="p-3">Area</th>
+                          {getActiveCategories(selectedRoleContext).map(c => <th key={c.key} className="p-3 border-l border-slate-600">{c.label}</th>)}
+                          <th className="p-3 bg-slate-600 border-l border-slate-500">Skor Awal</th>
+                          <th className="p-3 bg-slate-600">+ Poin</th>
+                          <th className="p-3 bg-slate-600">Pelanggaran</th>
+                          <th className="p-3 bg-slate-600">Penalti</th>
+                          <th className="p-3 bg-emerald-800 border-l border-emerald-700">Kepatuhan</th>
+                          <th className="p-3 bg-emerald-800">Ket.</th>
+                          <th className="p-3 bg-emerald-700 border-l border-emerald-600">SKOR AKHIR</th>
+                          <th className="p-3 bg-emerald-600 border-l border-emerald-500">NILAI</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {areaPersonnel.map(p => {
+                          const acc = getAccumulatedData(p.id, selectedRoleContext);
+                          const um = monthlyData[p.id] || { kepatuhan: 75, pelanggaran: 0, keterangan: '' };
+                          let sAwal = 100, tPoin = 0, penalti = -(um.pelanggaran * 5), sAkhir = 0;
+                          
+                          if (selectedRoleContext === 'SO') {
+                            sAwal = 100 - ( (acc.obs>=200?0:(200-acc.obs)/200*25) + (acc.iden>=16?0:(16-acc.iden)/16*25) + (acc.st>=8?0:(8-acc.st)/8*25) + (acc.ss>=28?0:(28-acc.ss)/28*25) );
+                            tPoin = (acc.si||0) + (acc.ps||0) + parseInt(um.kepatuhan);
+                          } else {
+                            sAwal = 100 - ( (acc.obs>=140?0:(140-acc.obs)/140*20) + (acc.iden>=12?0:(12-acc.iden)/12*20) + (acc.ste>=8?0:(8-acc.ste)/8*20) + (acc.st>=8?0:(8-acc.st)/8*20) + (acc.ss>=20?0:(20-acc.ss)/20*20) );
+                            tPoin = (acc.si||0) + (acc.ps||0) + parseInt(um.kepatuhan);
+                          }
+                          if(sAwal < 0) sAwal = 0;
+                          sAkhir = sAwal + tPoin + penalti;
+                          const grade = calculateGrade(sAkhir, parseInt(um.kepatuhan), um.keterangan);
+
+                          return (
+                            <tr key={p.id} className="border-b border-slate-200 hover:bg-slate-50">
+                              <td className="p-3 font-bold">{p.nama}</td>
+                              <td className="p-3 text-center font-bold text-slate-500 bg-slate-50/50">{p.area}</td>
+                              {getActiveCategories(selectedRoleContext).map(c => <td key={c.key} className="p-3 text-center border-l border-slate-200">{acc[c.key]||0}</td>)}
+                              <td className="p-3 text-center border-l border-slate-200 bg-slate-50">{sAwal.toFixed(1)}</td>
+                              <td className="p-3 text-center bg-slate-50">{tPoin}</td>
+                              <td className="p-2 text-center bg-red-50/30 border-l border-slate-200"><input type="number" className="w-12 border p-1 rounded" value={um.pelanggaran} onChange={e=>handleMonthlyInput(p.id, 'pelanggaran', e.target.value)}/></td>
+                              <td className="p-3 text-center text-red-600 font-bold bg-red-50/30">{penalti}</td>
+                              <td className="p-2 text-center border-l border-slate-200 bg-emerald-50/30">
+                                <select className="border p-1 rounded bg-white" value={um.kepatuhan} onChange={e=>handleMonthlyInput(p.id, 'kepatuhan', e.target.value)}>
+                                  <option value="25">25</option><option value="50">50</option><option value="75">75</option><option value="100">100</option>
+                                </select>
+                              </td>
+                              <td className="p-2 bg-emerald-50/30"><input type="text" className="w-20 border p-1 text-xs rounded" placeholder="Cuti/Ijin" value={um.keterangan} onChange={e=>handleMonthlyInput(p.id, 'keterangan', e.target.value)}/></td>
+                              <td className="p-3 text-center font-bold text-emerald-800 bg-emerald-100/50 border-l border-emerald-200">{sAkhir.toFixed(1)}</td>
+                              <td className="p-3 text-center border-l border-emerald-200 bg-emerald-50/50"><span className={`px-2 py-1 rounded shadow-sm text-white font-bold ${grade==='A'?'bg-green-500':grade==='B'?'bg-lime-500':grade==='C'?'bg-yellow-500':'bg-red-500'}`}>{grade}</span></td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+             })}
           </div>
         )}
       </main>
