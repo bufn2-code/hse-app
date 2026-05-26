@@ -1,6 +1,6 @@
 /* eslint-disable no-undef */
 import React, { useState, useEffect } from 'react';
-import { Database, ClipboardPaste, Calculator, CheckCircle, AlertCircle, Info, Table, UserPlus, Trash2 } from 'lucide-react';
+import { Database, ClipboardPaste, Calculator, CheckCircle, AlertCircle, Info, Table, UserPlus, Trash2, Edit, AlertTriangle } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAnalytics } from 'firebase/analytics';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
@@ -23,14 +23,14 @@ const getFirebaseConfig = () => {
   if (isCanvas) {
     return JSON.parse(__firebase_config);
   }
-  return firebaseConfig;
+  return firebaseConfig; // SUDAH DIPERBAIKI DI SINI
 };
 
 const app = initializeApp(getFirebaseConfig());
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// Inisialisasi Analytics yang aman (Hanya dijalankan di Vercel/Produksi)
+// Inisialisasi Analytics
 const initAnalytics = () => {
   if (typeof window !== 'undefined' && !isCanvas) {
     try { 
@@ -56,6 +56,11 @@ export default function App() {
   const [selectedWeek, setSelectedWeek] = useState('w1');
   const [selectedIndicator, setSelectedIndicator] = useState('obs');
   const [pasteText, setPasteText] = useState('');
+
+  // STATE BARU: Untuk fitur Edit dan Hapus (Modal)
+  const [editingId, setEditingId] = useState(null);
+  const [editFormData, setEditFormData] = useState({ nama: '', area: '', role: '' });
+  const [deleteModal, setDeleteModal] = useState({ show: false, id: null, nama: '' });
 
   // Menggunakan ID murni agar tidak terblokir oleh aturan keamanan Firestore
   const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'bufn2-kpi-app';
@@ -138,11 +143,32 @@ export default function App() {
     setNewEmp({ nama: '', area: 'C', role: 'SO' });
   };
 
-  const handleDeletePersonnel = async (id) => {
-    if (confirm('Hapus pegawai ini dari database? Semua datanya juga akan hilang dari laporan.')) {
-      const docRef = doc(db, 'artifacts', getAppId(), 'public', 'data', 'personnel', id);
-      await deleteDoc(docRef);
-    }
+  // FUNGSI BARU: Logika Edit
+  const handleEditClick = (pegawai) => {
+    setEditingId(pegawai.id);
+    setEditFormData({ nama: pegawai.nama, area: pegawai.area, role: pegawai.role });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editFormData.nama.trim()) return;
+    const docRef = doc(db, 'artifacts', getAppId(), 'public', 'data', 'personnel', editingId);
+    await setDoc(docRef, editFormData, { merge: true });
+    setEditingId(null);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+  };
+
+  // FUNGSI BARU: Logika Hapus dengan Modal
+  const requestDelete = (id, nama) => {
+    setDeleteModal({ show: true, id, nama });
+  };
+
+  const confirmDelete = async () => {
+    const docRef = doc(db, 'artifacts', getAppId(), 'public', 'data', 'personnel', deleteModal.id);
+    await deleteDoc(docRef);
+    setDeleteModal({ show: false, id: null, nama: '' });
   };
 
   const handleProcessPaste = async () => {
@@ -237,7 +263,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-800 font-sans pb-12">
+    <div className="min-h-screen bg-slate-100 text-slate-800 font-sans pb-12 relative">
       <header className="bg-emerald-800 text-white p-5 shadow-lg">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center space-x-3">
@@ -287,13 +313,48 @@ export default function App() {
             <h2 className="text-xl font-bold text-slate-800 mb-4">Daftar Pegawai</h2>
             <table className="w-full text-left text-sm border-collapse">
               <thead className="bg-slate-100">
-                <tr><th className="p-3 border-b">Nama</th><th className="p-3 border-b">Area</th><th className="p-3 border-b">Role</th><th className="p-3 border-b">Hapus</th></tr>
+                <tr><th className="p-3 border-b">Nama</th><th className="p-3 border-b">Area</th><th className="p-3 border-b">Role</th><th className="p-3 border-b text-center">Aksi</th></tr>
               </thead>
               <tbody>
                 {personnel.map(p => (
                   <tr key={p.id} className="border-b hover:bg-slate-50">
-                    <td className="p-3">{p.nama}</td><td className="p-3 font-bold text-slate-500">{p.area}</td><td className="p-3">{p.role === 'SO' ? 'Safety Officer' : 'Wakil Foreman'}</td>
-                    <td className="p-3"><button onClick={() => handleDeletePersonnel(p.id)} className="text-red-500"><Trash2 size={18}/></button></td>
+                    {/* MODE EDIT JIKA ID COCOK */}
+                    {editingId === p.id ? (
+                      <>
+                        <td className="p-2">
+                          <input type="text" className="border rounded p-1 w-full" value={editFormData.nama} onChange={(e) => setEditFormData({...editFormData, nama: e.target.value})} />
+                        </td>
+                        <td className="p-2">
+                          <select className="border rounded p-1" value={editFormData.area} onChange={(e) => setEditFormData({...editFormData, area: e.target.value})}>
+                            <option value="C">Area C</option><option value="E">Area E</option><option value="F">Area F</option>
+                          </select>
+                        </td>
+                        <td className="p-2">
+                          <select className="border rounded p-1" value={editFormData.role} onChange={(e) => setEditFormData({...editFormData, role: e.target.value})}>
+                            <option value="SO">Safety Officer</option><option value="WFSO">Wakil Foreman</option>
+                          </select>
+                        </td>
+                        <td className="p-2 text-center space-x-2">
+                          <button onClick={handleSaveEdit} className="text-white bg-emerald-600 px-3 py-1 rounded font-bold text-xs">Simpan</button>
+                          <button onClick={cancelEdit} className="text-slate-600 bg-slate-200 px-3 py-1 rounded font-bold text-xs">Batal</button>
+                        </td>
+                      </>
+                    ) : (
+                      // TAMPILAN NORMAL
+                      <>
+                        <td className="p-3">{p.nama}</td>
+                        <td className="p-3 font-bold text-slate-500">{p.area}</td>
+                        <td className="p-3">{p.role === 'SO' ? 'Safety Officer' : 'Wakil Foreman'}</td>
+                        <td className="p-3 text-center space-x-3">
+                          <button onClick={() => handleEditClick(p)} className="text-blue-500 hover:text-blue-700" title="Edit">
+                            <Edit size={18}/>
+                          </button>
+                          <button onClick={() => requestDelete(p.id, p.nama)} className="text-red-500 hover:text-red-700" title="Hapus">
+                            <Trash2 size={18}/>
+                          </button>
+                        </td>
+                      </>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -357,7 +418,8 @@ export default function App() {
              <table className="w-full text-xs border-collapse whitespace-nowrap">
                 <thead className="bg-slate-800 text-white">
                   <tr>
-                    <th className="p-3">Nama</th>
+                    <th className="p-3 text-left">Nama</th>
+                    <th className="p-3">Area</th> {/* KOLOM AREA DITAMBAHKAN */}
                     {getActiveCategories(selectedRoleContext).map(c => <th key={c.key} className="p-3">{c.label}</th>)}
                     <th className="p-3 bg-slate-700">Skor Awal</th>
                     <th className="p-3 bg-slate-700">+ Poin</th>
@@ -389,6 +451,7 @@ export default function App() {
                     return (
                       <tr key={p.id} className="border-b hover:bg-slate-50">
                         <td className="p-3 font-bold">{p.nama}</td>
+                        <td className="p-3 text-center font-bold text-slate-500 bg-slate-50/50">{p.area}</td> {/* DATA AREA DITAMBAHKAN */}
                         {getActiveCategories(selectedRoleContext).map(c => <td key={c.key} className="p-3 text-center border-l">{acc[c.key]||0}</td>)}
                         <td className="p-3 text-center border-l bg-slate-50">{sAwal.toFixed(1)}</td>
                         <td className="p-3 text-center bg-slate-50">{tPoin}</td>
@@ -410,6 +473,37 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* MODAL HAPUS KUSTOM */}
+      {deleteModal.show && (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 animate-in fade-in zoom-in duration-200">
+            <div className="flex flex-col items-center text-center">
+              <div className="bg-red-100 p-3 rounded-full mb-4">
+                <AlertTriangle size={32} className="text-red-600" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-800 mb-2">Hapus Pegawai?</h3>
+              <p className="text-slate-600 mb-6 text-sm">
+                Apakah Anda yakin ingin menghapus <b>{deleteModal.nama}</b>? Semua data mingguan dan bulanan pegawai ini juga akan hilang dari laporan.
+              </p>
+              <div className="flex gap-3 w-full">
+                <button 
+                  onClick={() => setDeleteModal({ show: false, id: null, nama: '' })} 
+                  className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition-colors"
+                >
+                  Batal
+                </button>
+                <button 
+                  onClick={confirmDelete} 
+                  className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-colors"
+                >
+                  Ya, Hapus
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
