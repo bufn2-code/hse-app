@@ -144,9 +144,9 @@ export default function App() {
   };
 
   // FUNGSI BARU: Logika Edit
-  const handleEditClick = (pegawai) => {
-    setEditingId(pegawai.id);
-    setEditFormData({ nama: pegawai.nama, area: pegawai.area, role: pegawai.role });
+  const handleEditClick = (Karyawan) => {
+    setEditingId(Karyawan.id);
+    setEditFormData({ nama: Karyawan.nama, area: Karyawan.area, role: Karyawan.role });
   };
 
   const handleSaveEdit = async () => {
@@ -289,16 +289,16 @@ export default function App() {
         {/* TAB DATABASE */}
         {activeTab === 'database' && (
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-            <h2 className="text-xl font-bold text-slate-800 mb-6 pb-2 border-b">Tambah Pegawai</h2>
+            <h2 className="text-xl font-bold text-slate-800 mb-6 pb-2 border-b">Tambah Karyawan</h2>
             <form onSubmit={handleAddPersonnel} className="flex flex-wrap gap-4 items-end mb-8">
               <div>
-                <label className="block text-sm text-slate-600 mb-1">Nama Pegawai</label>
+                <label className="block text-sm text-slate-600 mb-1">Nama Karyawan</label>
                 <input type="text" required className="border border-slate-300 rounded p-2 focus:ring-emerald-500" value={newEmp.nama} onChange={e => setNewEmp({...newEmp, nama: e.target.value})} />
               </div>
               <div>
                 <label className="block text-sm text-slate-600 mb-1">Area</label>
                 <select className="border border-slate-300 rounded p-2" value={newEmp.area} onChange={e => setNewEmp({...newEmp, area: e.target.value})}>
-                  <option value="C">Area C</option><option value="E">Area E</option><option value="F">Area F</option>
+                  <option value="C">Smelter C</option><option value="E">Smelter E</option><option value="F">Smelter F</option>
                 </select>
               </div>
               <div>
@@ -307,10 +307,10 @@ export default function App() {
                   <option value="SO">Safety Officer</option><option value="WFSO">Wakil Foreman</option>
                 </select>
               </div>
-              <button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded">Tambah Pegawai</button>
+              <button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded">Tambah Karyawan</button>
             </form>
 
-            <h2 className="text-xl font-bold text-slate-800 mb-4">Daftar Pegawai</h2>
+            <h2 className="text-xl font-bold text-slate-800 mb-4">Daftar Karyawan</h2>
             <table className="w-full text-left text-sm border-collapse">
               <thead className="bg-slate-100">
                 <tr><th className="p-3 border-b">Nama</th><th className="p-3 border-b">Area</th><th className="p-3 border-b">Role</th><th className="p-3 border-b text-center">Aksi</th></tr>
@@ -482,9 +482,9 @@ export default function App() {
               <div className="bg-red-100 p-3 rounded-full mb-4">
                 <AlertTriangle size={32} className="text-red-600" />
               </div>
-              <h3 className="text-xl font-bold text-slate-800 mb-2">Hapus Pegawai?</h3>
+              <h3 className="text-xl font-bold text-slate-800 mb-2">Hapus Karyawan?</h3>
               <p className="text-slate-600 mb-6 text-sm">
-                Apakah Anda yakin ingin menghapus <b>{deleteModal.nama}</b>? Semua data mingguan dan bulanan pegawai ini juga akan hilang dari laporan.
+                Apakah Anda yakin ingin menghapus <b>{deleteModal.nama}</b>? Semua data mingguan dan bulanan Karyawan ini juga akan hilang dari laporan.
               </p>
               <div className="flex gap-3 w-full">
                 <button 
