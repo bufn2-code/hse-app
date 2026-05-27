@@ -1,6 +1,6 @@
 /* eslint-disable no-undef */
 import React, { useState, useEffect } from 'react';
-import { Database, ClipboardPaste, Calculator, CheckCircle, Table, Trash2, Edit, AlertTriangle, Download, Search, LayoutDashboard, Calendar, TrendingDown, Info, Settings, Plus, Save } from 'lucide-react';
+import { Database, ClipboardPaste, CheckCircle, Table, Trash2, Edit, AlertTriangle, Download, Search, LayoutDashboard, Calendar, TrendingDown, Info, Settings, Plus, Save } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
@@ -22,7 +22,7 @@ const db = getFirestore(app);
 
 // DEFAULT MASTER DATA
 const defaultSettings = {
-  areas: ['Smelter C', 'Smelter E', 'Smelter F'], // SUDAH DIUBAH KE SMELTER
+  areas: ['Smelter C', 'Smelter E', 'Smelter F'], 
   roles: [
     { id: 'SO', name: 'Safety Officer' },
     { id: 'WFSO', name: 'Wakil Foreman' }
@@ -75,7 +75,12 @@ export default function App() {
   const [editFormData, setEditFormData] = useState({ nama: '', area: '', role: '' });
   const [deleteModal, setDeleteModal] = useState({ show: false, id: null, nama: '' });
   
+  // STATE PENGATURAN AREA & INDIKATOR BARU
   const [newArea, setNewArea] = useState('');
+  const [newCatLabel, setNewCatLabel] = useState('');
+  const [newCatTarget, setNewCatTarget] = useState(0);
+  const [newCatType, setNewCatType] = useState('target'); 
+  const [newCatRole, setNewCatRole] = useState('SO');
 
   const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'bufn2-kpi-app';
   const getActiveCategories = (roleId) => masterData.categories[roleId] || [];
@@ -101,38 +106,44 @@ export default function App() {
     const unsubs = [];
 
     try {
-      // 1. MASTER DATA (Dibuat sangat aman dari crash)
       const unsubSettings = onSnapshot(doc(db, 'artifacts', appId, 'public', 'settings', 'master'), (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
+          // Fallback aman jika struktur lama (mencegah crash)
+          if (!data.categories) data.categories = defaultSettings.categories;
           setMasterData(data);
-          // Set default dropdown tambah karyawan agar tidak error
+          
           setNewEmp(prev => ({
             ...prev, 
             area: prev.area || data.areas?.[0] || '', 
             role: prev.role || data.roles?.[0]?.id || ''
           }));
+          if(!newCatRole && data.roles?.[0]?.id) setNewCatRole(data.roles[0].id);
         } else {
           setDoc(doc(db, 'artifacts', appId, 'public', 'settings', 'master'), defaultSettings);
         }
       }, (err) => console.error("Setting Error:", err));
       unsubs.push(unsubSettings);
 
-      // 2. KARYAWAN
       const unsubPersonnel = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'personnel'), 
-        (s) => { const d = []; s.forEach(doc => d.push(doc.data())); setPersonnel(d); },
+        (s) => { 
+          const d = []; 
+          // Pelindung agar doc tanpa "nama" tidak membuat aplikasi crash
+          s.forEach(doc => { 
+            const data = doc.data();
+            if (data && data.nama) d.push(data); 
+          }); 
+          setPersonnel(d); 
+        },
         (err) => console.error("Personnel Error:", err)
       );
       unsubs.push(unsubPersonnel);
       
-      // 3. MINGGUAN
       const unsubWeekly = onSnapshot(collection(db, 'artifacts', appId, 'public', `weeklyData_${selectedPeriod}`), 
-        (s) => { const d = {}; s.forEach(doc => { d[doc.id] = doc.data(); }); setWeeklyData(d); },
-        (err) => console.error("Weekly Error:", err)
+        (s) => { const d = {}; s.forEach(doc => { d[doc.id] = doc.data(); }); setWeeklyData(d); }
       );
       unsubs.push(unsubWeekly);
       
-      // 4. BULANAN
       const unsubMonthly = onSnapshot(collection(db, 'artifacts', appId, 'public', `monthlyData_${selectedPeriod}`), 
         (s) => { const d = {}; s.forEach(doc => { d[doc.id] = doc.data(); }); setMonthlyData(d); setIsDbReady(true); },
         (err) => { console.error("Monthly Error:", err); setIsDbReady(true); }
@@ -154,10 +165,8 @@ export default function App() {
 
   const handleAddArea = () => {
     if(!newArea.trim()) return;
-    // Format huruf awal kapital agar rapi (misal: "smelter g" -> "Smelter G")
     const formattedArea = newArea.trim().replace(/\b\w/g, l => l.toUpperCase());
     if(masterData.areas.includes(formattedArea)) return;
-    
     saveMasterData({ ...masterData, areas: [...masterData.areas, formattedArea] });
     setNewArea('');
   };
@@ -166,10 +175,41 @@ export default function App() {
     saveMasterData({ ...masterData, areas: masterData.areas.filter(a => a !== areaTarget) });
   };
 
-  const handleUpdateTarget = (roleId, catIndex, newTarget) => {
+  // Logika CRUD Indikator
+  const handleUpdateCategory = (roleId, catIndex, field, value) => {
     const updatedCategories = { ...masterData.categories };
-    updatedCategories[roleId][catIndex].target = Number(newTarget);
+    if (field === 'target') updatedCategories[roleId][catIndex].target = Number(value);
+    if (field === 'label') updatedCategories[roleId][catIndex].label = value;
+    if (field === 'isTargeted') {
+      updatedCategories[roleId][catIndex].isTargeted = value;
+      if (!value) updatedCategories[roleId][catIndex].target = 0; // Reset target jika jadi extra
+    }
     saveMasterData({ ...masterData, categories: updatedCategories });
+  };
+
+  const handleDeleteCategory = (roleId, catIndex) => {
+    if(!confirm('Yakin ingin menghapus indikator ini?')) return;
+    const updatedCategories = { ...masterData.categories };
+    updatedCategories[roleId].splice(catIndex, 1);
+    saveMasterData({ ...masterData, categories: updatedCategories });
+  };
+
+  const handleAddCategory = () => {
+    if (!newCatLabel.trim()) return alert("Nama indikator tidak boleh kosong");
+    const updatedCategories = { ...masterData.categories };
+    const newKey = 'cat_' + Date.now(); // ID unik
+    
+    if (!updatedCategories[newCatRole]) updatedCategories[newCatRole] = [];
+    updatedCategories[newCatRole].push({
+      key: newKey,
+      label: newCatLabel,
+      target: newCatType === 'target' ? Number(newCatTarget) : 0,
+      isTargeted: newCatType === 'target'
+    });
+    
+    saveMasterData({ ...masterData, categories: updatedCategories });
+    setNewCatLabel(''); setNewCatTarget(0);
+    alert('Indikator berhasil ditambahkan!');
   };
 
   // --- LOGIKA DATABASE KARYAWAN ---
@@ -179,6 +219,11 @@ export default function App() {
     const newId = Date.now().toString() + Math.random().toString(36).substr(2, 5);
     await setDoc(doc(db, 'artifacts', getAppId(), 'public', 'data', 'personnel', newId), { ...newEmp, id: newId });
     setNewEmp({ ...newEmp, nama: '' });
+  };
+
+  const handleEditClick = (Karyawan) => {
+    setEditingId(Karyawan.id);
+    setEditFormData({ nama: Karyawan.nama, area: Karyawan.area, role: Karyawan.role });
   };
 
   const handleSaveEdit = async () => {
@@ -192,7 +237,7 @@ export default function App() {
     setDeleteModal({ show: false, id: null, nama: '' });
   };
 
-  // --- LOGIKA PASTE (Lebih Pintar Membaca Nama Smelter) ---
+  // --- LOGIKA PASTE MINGGUAN ---
   const handleProcessPaste = async () => {
     if (!pasteText.trim()) return alert('Masukkan teks data terlebih dahulu.');
     const lines = pasteText.split('\n');
@@ -203,7 +248,6 @@ export default function App() {
       if (parts.length < 2) return;
 
       let namaPaste = parts[0];
-      // Cek apakah kolom kedua adalah nama Smelter yang ada di pengaturan
       const isAreaColumn = masterData.areas.some(a => a.toLowerCase() === (parts[1] || '').toLowerCase());
       
       let nilai = 0;
@@ -246,9 +290,10 @@ export default function App() {
   const calculateScore = (acc, um, roleId) => {
     const cats = getActiveCategories(roleId);
     const targetedCats = cats.filter(c => c.isTargeted);
-    const weightPerCat = 100 / targetedCats.length; 
+    // PELINDUNG: Jika target dihapus semua, pembagi otomatis aman
+    const weightPerCat = targetedCats.length > 0 ? (100 / targetedCats.length) : 0; 
 
-    let sAwal = 100;
+    let sAwal = targetedCats.length > 0 ? 100 : 0;
     targetedCats.forEach(c => {
       const val = acc[c.key] || 0;
       if (val < c.target) {
@@ -312,7 +357,6 @@ export default function App() {
     link.click();
   };
 
-  // MENDAPATKAN DAFTAR AREA AKTIF & AREA TIDAK DIKENAL
   const getActiveAreasForView = (personnelList) => {
     const areas = [...masterData.areas];
     const hasUnlisted = personnelList.some(p => !masterData.areas.includes(p.area));
@@ -321,7 +365,8 @@ export default function App() {
   };
 
   const filteredPersonnel = personnel.filter(p => p.role === selectedRoleContext);
-  const searchResult = personnel.filter(p => p.nama.toLowerCase().includes(searchQuery.toLowerCase()));
+  // PELINDUNG: Pengecekan aman p.nama sebelum memanggil toLowerCase()
+  const searchResult = personnel.filter(p => (p.nama || '').toLowerCase().includes(searchQuery.toLowerCase()));
 
   if (!isDbReady) {
     return (
@@ -392,7 +437,7 @@ export default function App() {
               
               <div className="overflow-x-auto max-h-[500px] border border-slate-200 rounded-lg shadow-inner">
                 <table className="w-full text-sm text-left">
-                  <thead className="bg-slate-800 text-white sticky top-0">
+                  <thead className="bg-slate-800 text-white sticky top-0 z-10">
                     <tr><th className="p-3">Nama Karyawan</th><th className="p-3 text-center">Smelter/Area</th><th className="p-3">Indikator</th><th className="p-3 text-center bg-slate-700">Tercapai</th><th className="p-3 text-center bg-slate-700">Target</th><th className="p-3 text-center bg-red-600">Kekurangan</th></tr>
                   </thead>
                   <tbody>
@@ -431,7 +476,7 @@ export default function App() {
                     {masterData.roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                   </select>
                 </div>
-                <button type="submit" className="w-full bg-emerald-600 text-white font-bold py-2 rounded">Simpan Karyawan</button>
+                <button type="submit" className="w-full bg-emerald-600 text-white font-bold py-2 rounded shadow">Simpan Karyawan</button>
               </form>
             </div>
             
@@ -442,7 +487,7 @@ export default function App() {
               </div>
               <div className="overflow-y-auto max-h-[500px] border rounded shadow-inner">
                 <table className="w-full text-left text-sm border-collapse">
-                  <thead className="bg-slate-100 sticky top-0"><tr className="shadow-sm"><th className="p-3">Nama</th><th className="p-3 text-center">Smelter / Area</th><th className="p-3 text-center">Role</th><th className="p-3 text-center">Aksi</th></tr></thead>
+                  <thead className="bg-slate-100 sticky top-0 z-10"><tr className="shadow-sm"><th className="p-3">Nama</th><th className="p-3 text-center">Smelter / Area</th><th className="p-3 text-center">Role</th><th className="p-3 text-center">Aksi</th></tr></thead>
                   <tbody>
                     {searchResult.length === 0 ? (
                       <tr><td colSpan="4" className="text-center p-6 text-slate-500">Karyawan tidak ditemukan.</td></tr>
@@ -456,7 +501,7 @@ export default function App() {
                               <td className="p-2"><input type="text" className="border p-1 w-full text-sm" value={editFormData.nama} onChange={(e) => setEditFormData({...editFormData, nama: e.target.value})} /></td>
                               <td className="p-2 text-center"><select className="border p-1 text-sm" value={editFormData.area} onChange={(e) => setEditFormData({...editFormData, area: e.target.value})}>{masterData.areas.map(a => <option key={a} value={a}>{a}</option>)}</select></td>
                               <td className="p-2 text-center"><select className="border p-1 text-sm" value={editFormData.role} onChange={(e) => setEditFormData({...editFormData, role: e.target.value})}>{masterData.roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></td>
-                              <td className="p-2 text-center space-x-2"><button onClick={handleSaveEdit} className="text-white bg-emerald-600 px-2 py-1 rounded text-xs">Simpan</button><button onClick={() => setEditingId(null)} className="bg-slate-200 px-2 py-1 rounded text-xs">Batal</button></td>
+                              <td className="p-2 text-center space-x-2 whitespace-nowrap"><button onClick={handleSaveEdit} className="text-white bg-emerald-600 px-2 py-1 rounded text-xs">Simpan</button><button onClick={() => setEditingId(null)} className="bg-slate-200 px-2 py-1 rounded text-xs">Batal</button></td>
                             </>
                           ) : (
                             <>
@@ -494,7 +539,6 @@ export default function App() {
                 <div>
                   <h2 className="font-bold text-lg mb-4">Preview ({masterData.roles.find(r=>r.id===selectedRoleContext)?.name})</h2>
                   {getActiveAreasForView(filteredPersonnel).map(area => {
-                    // Cek apakan area "Tidak dikenal"
                     const isUnknown = area.includes('Tidak Dikenal');
                     const areaPersonnel = filteredPersonnel.filter(p => isUnknown ? !masterData.areas.includes(p.area) : p.area === area);
                     
@@ -571,10 +615,12 @@ export default function App() {
         {activeTab === 'pengaturan' && (
           <div className="bg-slate-800 p-6 rounded-xl shadow-lg border border-slate-700 text-slate-200">
             <h2 className="font-bold text-2xl mb-2 text-white flex items-center gap-2"><Settings /> Pengaturan Sistem (Master Data)</h2>
-            <p className="text-sm text-slate-400 mb-8 border-b border-slate-700 pb-4">Setiap perubahan di sini akan otomatis mengubah seluruh struktur tabel dan dropdown di aplikasi secara instan.</p>
+            <p className="text-sm text-slate-400 mb-8 border-b border-slate-700 pb-4">Setiap perubahan di sini akan otomatis mengubah seluruh struktur tabel, form, dan rumus penilaian di aplikasi secara instan.</p>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div className="bg-slate-900 p-5 rounded-lg border border-slate-700 h-fit">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              
+              {/* KOLOM KIRI: AREA */}
+              <div className="bg-slate-900 p-5 rounded-lg border border-slate-700 h-fit lg:col-span-1">
                 <h3 className="font-bold text-white mb-4 flex items-center gap-2">Manajemen Smelter / Area</h3>
                 <div className="flex gap-2 mb-4">
                   <input type="text" placeholder="Misal: Smelter G" className="flex-1 bg-slate-800 border border-slate-600 rounded p-2 text-sm text-white focus:ring-emerald-500" value={newArea} onChange={e=>setNewArea(e.target.value)} />
@@ -589,24 +635,65 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="bg-slate-900 p-5 rounded-lg border border-slate-700">
-                <h3 className="font-bold text-white mb-4">Ubah Target Indikator</h3>
-                <div className="grid grid-cols-1 gap-6">
+              {/* KOLOM KANAN: INDIKATOR */}
+              <div className="bg-slate-900 p-5 rounded-lg border border-slate-700 lg:col-span-2">
+                <h3 className="font-bold text-white mb-4">Manajemen Indikator (KPI)</h3>
+                <div className="grid grid-cols-1 gap-6 mb-8">
                   {masterData.roles.map(r => (
                     <div key={r.id} className="bg-slate-800 p-4 rounded border border-slate-600">
-                      <h4 className="font-bold text-emerald-400 mb-3 border-b border-slate-700 pb-2">{r.name}</h4>
-                      {masterData.categories[r.id].map((cat, index) => (
-                        <div key={cat.key} className="flex justify-between items-center mb-2">
-                          <span className="text-sm">{cat.label} {cat.isTargeted ? '' : '(Extra)'}</span>
-                          {cat.isTargeted ? (
-                            <input type="number" className="w-20 bg-slate-700 border border-slate-500 rounded p-1 text-center text-sm font-bold text-white" value={cat.target} onChange={(e) => handleUpdateTarget(r.id, index, e.target.value)} />
-                          ) : (
-                            <span className="text-xs text-slate-500 italic">Tanpa Target</span>
-                          )}
-                        </div>
-                      ))}
+                      <h4 className="font-bold text-emerald-400 mb-4 border-b border-slate-700 pb-2 flex justify-between items-center">
+                        <span>Indikator {r.name}</span>
+                      </h4>
+                      
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm mb-4">
+                          <thead>
+                            <tr className="text-slate-400 border-b border-slate-700">
+                              <th className="pb-2">Nama Indikator</th><th className="pb-2 text-center">Tipe</th><th className="pb-2 text-center">Target (Angka)</th><th className="pb-2 text-center">Aksi</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {masterData.categories[r.id]?.map((cat, index) => (
+                              <tr key={cat.key} className="border-b border-slate-700/50">
+                                <td className="py-2"><input type="text" className="bg-slate-700 border border-slate-600 rounded p-1 w-full text-white text-xs" value={cat.label} onChange={(e) => handleUpdateCategory(r.id, index, 'label', e.target.value)} /></td>
+                                <td className="py-2 px-2 text-center">
+                                  <select className="bg-slate-700 border border-slate-600 rounded p-1 text-white text-xs" value={cat.isTargeted} onChange={(e) => handleUpdateCategory(r.id, index, 'isTargeted', e.target.value === 'true')}>
+                                    <option value="true">Target Utama</option><option value="false">Extra Poin</option>
+                                  </select>
+                                </td>
+                                <td className="py-2 px-2 text-center">
+                                  <input type="number" disabled={!cat.isTargeted} className={`w-16 bg-slate-700 border border-slate-600 rounded p-1 text-center text-xs font-bold text-white ${!cat.isTargeted && 'opacity-50'}`} value={cat.target} onChange={(e) => handleUpdateCategory(r.id, index, 'target', e.target.value)} />
+                                </td>
+                                <td className="py-2 text-center"><button onClick={() => handleDeleteCategory(r.id, index)} className="text-red-400 hover:text-red-300 p-1"><Trash2 size={16}/></button></td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   ))}
+                </div>
+
+                {/* FORM TAMBAH INDIKATOR BARU */}
+                <div className="bg-slate-800 p-4 rounded border border-emerald-700/50">
+                  <h4 className="font-bold text-white mb-3 text-sm flex items-center gap-2"><Plus size={16} className="text-emerald-400"/> Tambah Indikator Baru</h4>
+                  <div className="flex flex-wrap gap-3 items-end">
+                    <div className="flex-1 min-w-[150px]"><label className="block text-xs text-slate-400 mb-1">Pilih Jabatan</label>
+                      <select className="w-full bg-slate-700 border border-slate-600 rounded p-2 text-white text-sm" value={newCatRole} onChange={e=>setNewCatRole(e.target.value)}>
+                        {masterData.roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex-1 min-w-[150px]"><label className="block text-xs text-slate-400 mb-1">Nama Indikator</label><input type="text" placeholder="Misal: Patroli" className="w-full bg-slate-700 border border-slate-600 rounded p-2 text-white text-sm" value={newCatLabel} onChange={e=>setNewCatLabel(e.target.value)} /></div>
+                    <div className="w-32"><label className="block text-xs text-slate-400 mb-1">Tipe</label>
+                      <select className="w-full bg-slate-700 border border-slate-600 rounded p-2 text-white text-sm" value={newCatType} onChange={e=>setNewCatType(e.target.value)}>
+                        <option value="target">Target Utama</option><option value="extra">Extra Poin</option>
+                      </select>
+                    </div>
+                    {newCatType === 'target' && (
+                      <div className="w-24"><label className="block text-xs text-slate-400 mb-1">Target</label><input type="number" className="w-full bg-slate-700 border border-slate-600 rounded p-2 text-white text-sm font-bold" value={newCatTarget} onChange={e=>setNewCatTarget(e.target.value)} /></div>
+                    )}
+                    <button onClick={handleAddCategory} className="bg-emerald-600 hover:bg-emerald-500 px-4 py-2 rounded text-white font-bold text-sm h-[38px] shadow">Simpan</button>
+                  </div>
                 </div>
               </div>
             </div>
