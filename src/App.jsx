@@ -75,7 +75,6 @@ export default function App() {
   const [editFormData, setEditFormData] = useState({ nama: '', area: '', role: '' });
   const [deleteModal, setDeleteModal] = useState({ show: false, id: null, nama: '' });
   
-  // STATE PENGATURAN AREA & INDIKATOR BARU
   const [newArea, setNewArea] = useState('');
   const [newCatLabel, setNewCatLabel] = useState('');
   const [newCatTarget, setNewCatTarget] = useState(0);
@@ -109,7 +108,6 @@ export default function App() {
       const unsubSettings = onSnapshot(doc(db, 'artifacts', appId, 'public', 'settings', 'master'), (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
-          // Fallback aman jika struktur lama (mencegah crash)
           if (!data.categories) data.categories = defaultSettings.categories;
           setMasterData(data);
           
@@ -120,15 +118,18 @@ export default function App() {
           }));
           if(!newCatRole && data.roles?.[0]?.id) setNewCatRole(data.roles[0].id);
         } else {
-          setDoc(doc(db, 'artifacts', appId, 'public', 'settings', 'master'), defaultSettings);
+          // Jika kosong, inisiasi awal
+          setDoc(doc(db, 'artifacts', appId, 'public', 'settings', 'master'), defaultSettings).catch(err => console.error("Gagal inisiasi setting:", err));
         }
-      }, (err) => console.error("Setting Error:", err));
+      }, (err) => { 
+        console.error("Setting Error (Aturan Firebase mungkin menolak):", err); 
+        alert("GAGAL MENGAMBIL PENGATURAN: Pastikan Aturan Firebase sudah diatur ke 'allow read, write: if true;'");
+      });
       unsubs.push(unsubSettings);
 
       const unsubPersonnel = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'personnel'), 
         (s) => { 
           const d = []; 
-          // Pelindung agar doc tanpa "nama" tidak membuat aplikasi crash
           s.forEach(doc => { 
             const data = doc.data();
             if (data && data.nama) d.push(data); 
@@ -158,9 +159,14 @@ export default function App() {
     return () => { unsubs.forEach(u => u()); };
   }, [user, selectedPeriod]);
 
-  // --- LOGIKA MASTER DATA (PENGATURAN) ---
+  // --- LOGIKA MASTER DATA DENGAN ALARM ERROR ---
   const saveMasterData = async (newData) => {
-    await setDoc(doc(db, 'artifacts', getAppId(), 'public', 'settings', 'master'), newData);
+    try {
+      await setDoc(doc(db, 'artifacts', getAppId(), 'public', 'settings', 'master'), newData);
+      alert("✅ Pengaturan berhasil diperbarui!");
+    } catch (error) {
+      alert("❌ GAGAL MENYIMPAN PENGATURAN: " + error.message);
+    }
   };
 
   const handleAddArea = () => {
@@ -175,14 +181,13 @@ export default function App() {
     saveMasterData({ ...masterData, areas: masterData.areas.filter(a => a !== areaTarget) });
   };
 
-  // Logika CRUD Indikator
   const handleUpdateCategory = (roleId, catIndex, field, value) => {
     const updatedCategories = { ...masterData.categories };
     if (field === 'target') updatedCategories[roleId][catIndex].target = Number(value);
     if (field === 'label') updatedCategories[roleId][catIndex].label = value;
     if (field === 'isTargeted') {
       updatedCategories[roleId][catIndex].isTargeted = value;
-      if (!value) updatedCategories[roleId][catIndex].target = 0; // Reset target jika jadi extra
+      if (!value) updatedCategories[roleId][catIndex].target = 0;
     }
     saveMasterData({ ...masterData, categories: updatedCategories });
   };
@@ -197,7 +202,7 @@ export default function App() {
   const handleAddCategory = () => {
     if (!newCatLabel.trim()) return alert("Nama indikator tidak boleh kosong");
     const updatedCategories = { ...masterData.categories };
-    const newKey = 'cat_' + Date.now(); // ID unik
+    const newKey = 'cat_' + Date.now();
     
     if (!updatedCategories[newCatRole]) updatedCategories[newCatRole] = [];
     updatedCategories[newCatRole].push({
@@ -209,16 +214,20 @@ export default function App() {
     
     saveMasterData({ ...masterData, categories: updatedCategories });
     setNewCatLabel(''); setNewCatTarget(0);
-    alert('Indikator berhasil ditambahkan!');
   };
 
-  // --- LOGIKA DATABASE KARYAWAN ---
+  // --- LOGIKA DATABASE KARYAWAN DENGAN ALARM ERROR ---
   const handleAddPersonnel = async (e) => {
     e.preventDefault();
     if (!newEmp.nama.trim()) return;
-    const newId = Date.now().toString() + Math.random().toString(36).substr(2, 5);
-    await setDoc(doc(db, 'artifacts', getAppId(), 'public', 'data', 'personnel', newId), { ...newEmp, id: newId });
-    setNewEmp({ ...newEmp, nama: '' });
+    try {
+      const newId = Date.now().toString() + Math.random().toString(36).substr(2, 5);
+      await setDoc(doc(db, 'artifacts', getAppId(), 'public', 'data', 'personnel', newId), { ...newEmp, id: newId });
+      setNewEmp({ ...newEmp, nama: '' });
+      alert("✅ Karyawan berhasil ditambahkan!");
+    } catch (error) {
+      alert("❌ GAGAL MENAMBAH KARYAWAN: " + error.message);
+    }
   };
 
   const handleEditClick = (Karyawan) => {
@@ -228,16 +237,26 @@ export default function App() {
 
   const handleSaveEdit = async () => {
     if (!editFormData.nama.trim()) return;
-    await setDoc(doc(db, 'artifacts', getAppId(), 'public', 'data', 'personnel', editingId), editFormData, { merge: true });
-    setEditingId(null);
+    try {
+      await setDoc(doc(db, 'artifacts', getAppId(), 'public', 'data', 'personnel', editingId), editFormData, { merge: true });
+      setEditingId(null);
+      alert("✅ Data berhasil diubah!");
+    } catch (error) {
+      alert("❌ GAGAL MENGUBAH DATA: " + error.message);
+    }
   };
 
   const confirmDelete = async () => {
-    await deleteDoc(doc(db, 'artifacts', getAppId(), 'public', 'data', 'personnel', deleteModal.id));
-    setDeleteModal({ show: false, id: null, nama: '' });
+    try {
+      await deleteDoc(doc(db, 'artifacts', getAppId(), 'public', 'data', 'personnel', deleteModal.id));
+      setDeleteModal({ show: false, id: null, nama: '' });
+      alert("✅ Karyawan berhasil dihapus!");
+    } catch (error) {
+      alert("❌ GAGAL MENGHAPUS: " + error.message);
+    }
   };
 
-  // --- LOGIKA PASTE MINGGUAN ---
+  // --- LOGIKA INPUT NILAI DENGAN ALARM ERROR ---
   const handleProcessPaste = async () => {
     if (!pasteText.trim()) return alert('Masukkan teks data terlebih dahulu.');
     const lines = pasteText.split('\n');
@@ -266,15 +285,23 @@ export default function App() {
       } else { failedNames.push(namaPaste); }
     });
 
-    for (const empId of Object.keys(updates)) {
-      await setDoc(doc(db, 'artifacts', getAppId(), 'public', `weeklyData_${selectedPeriod}`, empId), updates[empId], { merge: true });
+    try {
+      for (const empId of Object.keys(updates)) {
+        await setDoc(doc(db, 'artifacts', getAppId(), 'public', `weeklyData_${selectedPeriod}`, empId), updates[empId], { merge: true });
+      }
+      setPasteText('');
+      alert(`✅ Berhasil memasukkan ${successCount} data!${failedNames.length > 0 ? `\nGagal (Nama/Role salah): ${failedNames.slice(0, 3).join(', ')}...` : ''}`);
+    } catch (error) {
+      alert("❌ GAGAL MENYIMPAN NILAI: " + error.message);
     }
-    setPasteText('');
-    alert(`Berhasil memasukkan ${successCount} data!${failedNames.length > 0 ? `\nGagal (Nama/Role salah): ${failedNames.slice(0, 3).join(', ')}...` : ''}`);
   };
 
-  const handleMonthlyInput = (empId, field, value) => {
-    setDoc(doc(db, 'artifacts', getAppId(), 'public', `monthlyData_${selectedPeriod}`, empId), { [field]: value }, { merge: true });
+  const handleMonthlyInput = async (empId, field, value) => {
+    try {
+      await setDoc(doc(db, 'artifacts', getAppId(), 'public', `monthlyData_${selectedPeriod}`, empId), { [field]: value }, { merge: true });
+    } catch (error) {
+      alert("❌ GAGAL UPDATE LAPORAN: " + error.message);
+    }
   };
 
   const getAccumulatedData = (empId, role) => {
@@ -290,7 +317,6 @@ export default function App() {
   const calculateScore = (acc, um, roleId) => {
     const cats = getActiveCategories(roleId);
     const targetedCats = cats.filter(c => c.isTargeted);
-    // PELINDUNG: Jika target dihapus semua, pembagi otomatis aman
     const weightPerCat = targetedCats.length > 0 ? (100 / targetedCats.length) : 0; 
 
     let sAwal = targetedCats.length > 0 ? 100 : 0;
@@ -365,7 +391,6 @@ export default function App() {
   };
 
   const filteredPersonnel = personnel.filter(p => p.role === selectedRoleContext);
-  // PELINDUNG: Pengecekan aman p.nama sebelum memanggil toLowerCase()
   const searchResult = personnel.filter(p => (p.nama || '').toLowerCase().includes(searchQuery.toLowerCase()));
 
   if (!isDbReady) {
@@ -394,7 +419,6 @@ export default function App() {
           <div className="flex items-center gap-3">
             <div className="bg-emerald-900 px-4 py-2 rounded-lg border border-emerald-700 flex items-center gap-2 shadow-inner">
               <Calendar size={16} className="text-emerald-300"/>
-              {/* KALENDER WAKTU DINAMIS */}
               <input type="month" className="bg-transparent text-white font-bold text-sm focus:outline-none cursor-pointer custom-month-input" 
                 value={selectedPeriod} onChange={(e) => setSelectedPeriod(e.target.value)} />
             </div>
@@ -413,7 +437,6 @@ export default function App() {
           <button onClick={() => setActiveTab('pengaturan')} className={`px-4 py-3 font-semibold rounded-t-lg transition-colors flex items-center gap-2 ml-auto ${activeTab === 'pengaturan' ? 'bg-slate-800 text-white border-t-2 border-emerald-500' : 'text-slate-500 hover:bg-slate-200'}`}><Settings size={18}/> Pengaturan</button>
         </div>
 
-        {/* ROLE FILTER */}
         {['input', 'laporan', 'dashboard'].includes(activeTab) && (
           <div className="mb-4 bg-white p-4 rounded-lg shadow-sm flex flex-wrap items-center gap-3 border border-slate-200">
             <span className="font-bold text-slate-700 mr-2">Tampilkan Data Untuk:</span>
@@ -476,7 +499,7 @@ export default function App() {
                     {masterData.roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                   </select>
                 </div>
-                <button type="submit" className="w-full bg-emerald-600 text-white font-bold py-2 rounded shadow">Simpan Karyawan</button>
+                <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded shadow">Simpan Karyawan</button>
               </form>
             </div>
             
@@ -534,7 +557,7 @@ export default function App() {
                     <select className="border p-2 w-full rounded" value={selectedIndicator} onChange={(e) => setSelectedIndicator(e.target.value)}>{getActiveCategories(selectedRoleContext).map(c => <option key={c.key} value={c.key}>{c.label}</option>)}</select>
                   </div>
                   <textarea className="w-full border p-3 h-48 rounded text-sm font-mono" placeholder="Nama [Tab] Nilai" value={pasteText} onChange={(e) => setPasteText(e.target.value)}></textarea>
-                  <button onClick={handleProcessPaste} className="w-full bg-emerald-600 text-white font-bold py-3 mt-4 rounded shadow">Proses & Simpan</button>
+                  <button onClick={handleProcessPaste} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 mt-4 rounded shadow">Proses & Simpan</button>
                 </div>
                 <div>
                   <h2 className="font-bold text-lg mb-4">Preview ({masterData.roles.find(r=>r.id===selectedRoleContext)?.name})</h2>
