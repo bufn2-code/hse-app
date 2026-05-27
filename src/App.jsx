@@ -1,6 +1,6 @@
 /* eslint-disable no-undef */
 import React, { useState, useEffect } from 'react';
-import { Database, ClipboardPaste, Calculator, CheckCircle, Table, Trash2, Edit, AlertTriangle, Download, Search, LayoutDashboard, Calendar, TrendingDown } from 'lucide-react';
+import { Database, ClipboardPaste, Calculator, CheckCircle, Table, Trash2, Edit, AlertTriangle, Download, Search, LayoutDashboard, Calendar, TrendingDown, Info } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAnalytics } from 'firebase/analytics';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
@@ -116,30 +116,31 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     const appId = getAppId();
-    setIsDbReady(false);
+    setIsDbReady(false); // Mulai loading
     
     try {
-      // 1. Personnel bersifat Global (Tidak terpengaruh Periode)
+      // 1. Personnel bersifat Global 
       const unsubPersonnel = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'personnel'), 
         (s) => { const d = []; s.forEach(doc => d.push(doc.data())); setPersonnel(d); },
-        (e) => console.error("Error Personnel:", e)
+        (e) => { console.error("Error Personnel:", e); setIsDbReady(true); }
       );
       
-      // 2. Data Mingguan bergantung pada Periode
-      const unsubWeekly = onSnapshot(collection(db, 'artifacts', appId, 'public', 'periode', selectedPeriod, 'weeklyData'), 
+      // 2. Data Mingguan (Alamat diperbaiki)
+      const unsubWeekly = onSnapshot(collection(db, 'artifacts', appId, 'public', `weeklyData_${selectedPeriod}`), 
         (s) => { const d = {}; s.forEach(doc => { d[doc.id] = doc.data(); }); setWeeklyData(d); },
-        (e) => console.error("Error Weekly:", e)
+        (e) => { console.error("Error Weekly:", e); setIsDbReady(true); }
       );
       
-      // 3. Data Bulanan bergantung pada Periode
-      const unsubMonthly = onSnapshot(collection(db, 'artifacts', appId, 'public', 'periode', selectedPeriod, 'monthlyData'), 
-        (s) => { const d = {}; s.forEach(doc => { d[doc.id] = doc.data(); }); setMonthlyData(d); setIsDbReady(true); },
-        (e) => console.error("Error Monthly:", e)
+      // 3. Data Bulanan (Alamat diperbaiki)
+      const unsubMonthly = onSnapshot(collection(db, 'artifacts', appId, 'public', `monthlyData_${selectedPeriod}`), 
+        (s) => { const d = {}; s.forEach(doc => { d[doc.id] = doc.data(); }); setMonthlyData(d); setIsDbReady(true); }, // Loading Selesai
+        (e) => { console.error("Error Monthly:", e); setIsDbReady(true); }
       );
       
       return () => { unsubPersonnel(); unsubWeekly(); unsubMonthly(); };
     } catch (err) {
       console.error("Firestore Exception:", err);
+      setIsDbReady(true); // PENGAMAN: Matikan loading jika error
     }
   }, [user, selectedPeriod]);
 
@@ -204,7 +205,7 @@ export default function App() {
 
     for (const empId of Object.keys(updates)) {
       // Simpan ke collection berdasarkan Periode Aktif
-      const docRef = doc(db, 'artifacts', getAppId(), 'public', 'periode', selectedPeriod, 'weeklyData', empId);
+      const docRef = doc(db, 'artifacts', getAppId(), 'public', `weeklyData_${selectedPeriod}`, empId);
       await setDoc(docRef, updates[empId], { merge: true });
     }
     setPasteText('');
@@ -217,7 +218,7 @@ export default function App() {
 
   // LOGIKA UPDATE MANUAL LAPORAN
   const handleMonthlyInput = (empId, field, value) => {
-    const docRef = doc(db, 'artifacts', getAppId(), 'public', 'periode', selectedPeriod, 'monthlyData', empId);
+    const docRef = doc(db, 'artifacts', getAppId(), 'public', `monthlyData_${selectedPeriod}`, empId);
     setDoc(docRef, { [field]: value }, { merge: true });
   };
 
@@ -265,7 +266,6 @@ export default function App() {
         }
       });
     });
-    // Urutkan berdasarkan yang kekurangannya paling banyak
     return defisit.sort((a, b) => b.kurang - a.kurang);
   };
 
@@ -308,8 +308,6 @@ export default function App() {
   };
 
   const filteredPersonnel = personnel.filter(p => p.role === selectedRoleContext);
-  
-  // Filter pencarian untuk Tab Database
   const searchResult = personnel.filter(p => p.nama.toLowerCase().includes(searchQuery.toLowerCase()));
 
   if (!isDbReady) {
@@ -339,7 +337,7 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-3">
-            <div className="bg-emerald-900 px-4 py-2 rounded-lg border border-emerald-700 flex items-center gap-2">
+            <div className="bg-emerald-900 px-4 py-2 rounded-lg border border-emerald-700 flex items-center gap-2 shadow-inner">
               <Calendar size={16} className="text-emerald-300"/>
               <select className="bg-transparent text-white font-bold text-sm focus:outline-none cursor-pointer" value={selectedPeriod} onChange={(e) => setSelectedPeriod(e.target.value)}>
                 {periodList.map(per => <option key={per.id} value={per.id} className="text-slate-800">{per.label}</option>)}
@@ -400,7 +398,7 @@ export default function App() {
                     {getDefisitTarget().length === 0 ? (
                       <tr><td colSpan="6" className="p-6 text-center text-slate-500 font-bold bg-slate-50">🎉 Luar biasa! Semua karyawan sudah mencapai target bulan ini.</td></tr>
                     ) : (
-                      getDefisitTarget().map((item, index) => (
+                      getDefisitTarget().map((item) => (
                         <tr key={item.id} className="border-b border-slate-200 hover:bg-slate-50">
                           <td className="p-3 font-bold text-slate-700">{item.nama}</td>
                           <td className="p-3 text-center font-bold text-slate-500">{item.area}</td>
