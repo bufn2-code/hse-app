@@ -2,7 +2,6 @@
 import React, { useState, useEffect } from 'react';
 import { Database, ClipboardPaste, Calculator, CheckCircle, Table, Trash2, Edit, AlertTriangle, Download, Search, LayoutDashboard, Calendar, TrendingDown, Info, Settings, Plus, Save } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
-import { getAnalytics } from 'firebase/analytics';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 
@@ -21,9 +20,9 @@ const app = initializeApp(getFirebaseConfig());
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// --- DEFAULT MASTER DATA (Jika database kosong) ---
+// DEFAULT MASTER DATA
 const defaultSettings = {
-  areas: ['C', 'E', 'F'],
+  areas: ['Smelter C', 'Smelter E', 'Smelter F'], // SUDAH DIUBAH KE SMELTER
   roles: [
     { id: 'SO', name: 'Safety Officer' },
     { id: 'WFSO', name: 'Wakil Foreman' }
@@ -50,25 +49,23 @@ const defaultSettings = {
 };
 
 export default function App() {
-  // WAKTU DINAMIS (Poin A)
   const getCurrentMonth = () => {
     const today = new Date();
     return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
   };
-  const [selectedPeriod, setSelectedPeriod] = useState(getCurrentMonth()); 
   
+  const [selectedPeriod, setSelectedPeriod] = useState(getCurrentMonth()); 
   const [activeTab, setActiveTab] = useState('dashboard');
   const [user, setUser] = useState(null);
   const [isDbReady, setIsDbReady] = useState(false);
   
-  // STATE DATABASE UTAMA
   const [personnel, setPersonnel] = useState([]);
   const [weeklyData, setWeeklyData] = useState({});
   const [monthlyData, setMonthlyData] = useState({});
-  const [masterData, setMasterData] = useState(defaultSettings); // MASTER DATA DINAMIS
+  const [masterData, setMasterData] = useState(defaultSettings); 
   
   const [searchQuery, setSearchQuery] = useState('');
-  const [newEmp, setNewEmp] = useState({ nama: '', area: 'C', role: 'SO' });
+  const [newEmp, setNewEmp] = useState({ nama: '', area: '', role: '' });
   const [selectedRoleContext, setSelectedRoleContext] = useState('SO');
   const [selectedWeek, setSelectedWeek] = useState('w1');
   const [selectedIndicator, setSelectedIndicator] = useState('obs');
@@ -78,9 +75,7 @@ export default function App() {
   const [editFormData, setEditFormData] = useState({ nama: '', area: '', role: '' });
   const [deleteModal, setDeleteModal] = useState({ show: false, id: null, nama: '' });
   
-  // STATE PENGATURAN
   const [newArea, setNewArea] = useState('');
-  const [newRole, setNewRole] = useState({ id: '', name: '' });
 
   const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'bufn2-kpi-app';
   const getActiveCategories = (roleId) => masterData.categories[roleId] || [];
@@ -103,34 +98,53 @@ export default function App() {
     const appId = getAppId();
     setIsDbReady(false);
     
+    const unsubs = [];
+
     try {
-      // MASTER DATA SYNC
+      // 1. MASTER DATA (Dibuat sangat aman dari crash)
       const unsubSettings = onSnapshot(doc(db, 'artifacts', appId, 'public', 'settings', 'master'), (docSnap) => {
         if (docSnap.exists()) {
-          setMasterData(docSnap.data());
-          // Update default selections if needed
-          setNewEmp(prev => ({...prev, area: docSnap.data().areas[0], role: docSnap.data().roles[0].id}));
+          const data = docSnap.data();
+          setMasterData(data);
+          // Set default dropdown tambah karyawan agar tidak error
+          setNewEmp(prev => ({
+            ...prev, 
+            area: prev.area || data.areas?.[0] || '', 
+            role: prev.role || data.roles?.[0]?.id || ''
+          }));
         } else {
           setDoc(doc(db, 'artifacts', appId, 'public', 'settings', 'master'), defaultSettings);
         }
-      });
+      }, (err) => console.error("Setting Error:", err));
+      unsubs.push(unsubSettings);
 
+      // 2. KARYAWAN
       const unsubPersonnel = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'personnel'), 
-        (s) => { const d = []; s.forEach(doc => d.push(doc.data())); setPersonnel(d); }
+        (s) => { const d = []; s.forEach(doc => d.push(doc.data())); setPersonnel(d); },
+        (err) => console.error("Personnel Error:", err)
       );
+      unsubs.push(unsubPersonnel);
       
+      // 3. MINGGUAN
       const unsubWeekly = onSnapshot(collection(db, 'artifacts', appId, 'public', `weeklyData_${selectedPeriod}`), 
-        (s) => { const d = {}; s.forEach(doc => { d[doc.id] = doc.data(); }); setWeeklyData(d); }
+        (s) => { const d = {}; s.forEach(doc => { d[doc.id] = doc.data(); }); setWeeklyData(d); },
+        (err) => console.error("Weekly Error:", err)
       );
+      unsubs.push(unsubWeekly);
       
+      // 4. BULANAN
       const unsubMonthly = onSnapshot(collection(db, 'artifacts', appId, 'public', `monthlyData_${selectedPeriod}`), 
-        (s) => { const d = {}; s.forEach(doc => { d[doc.id] = doc.data(); }); setMonthlyData(d); setIsDbReady(true); }
+        (s) => { const d = {}; s.forEach(doc => { d[doc.id] = doc.data(); }); setMonthlyData(d); setIsDbReady(true); },
+        (err) => { console.error("Monthly Error:", err); setIsDbReady(true); }
       );
+      unsubs.push(unsubMonthly);
       
-      return () => { unsubSettings(); unsubPersonnel(); unsubWeekly(); unsubMonthly(); };
     } catch (err) {
-      console.error(err); setIsDbReady(true);
+      console.error("Init Error:", err); 
+      setIsDbReady(true);
     }
+
+    return () => { unsubs.forEach(u => u()); };
   }, [user, selectedPeriod]);
 
   // --- LOGIKA MASTER DATA (PENGATURAN) ---
@@ -139,8 +153,12 @@ export default function App() {
   };
 
   const handleAddArea = () => {
-    if(!newArea.trim() || masterData.areas.includes(newArea.toUpperCase())) return;
-    saveMasterData({ ...masterData, areas: [...masterData.areas, newArea.toUpperCase()] });
+    if(!newArea.trim()) return;
+    // Format huruf awal kapital agar rapi (misal: "smelter g" -> "Smelter G")
+    const formattedArea = newArea.trim().replace(/\b\w/g, l => l.toUpperCase());
+    if(masterData.areas.includes(formattedArea)) return;
+    
+    saveMasterData({ ...masterData, areas: [...masterData.areas, formattedArea] });
     setNewArea('');
   };
 
@@ -174,7 +192,7 @@ export default function App() {
     setDeleteModal({ show: false, id: null, nama: '' });
   };
 
-  // --- LOGIKA INPUT & KALKULASI DINAMIS ---
+  // --- LOGIKA PASTE (Lebih Pintar Membaca Nama Smelter) ---
   const handleProcessPaste = async () => {
     if (!pasteText.trim()) return alert('Masukkan teks data terlebih dahulu.');
     const lines = pasteText.split('\n');
@@ -185,7 +203,15 @@ export default function App() {
       if (parts.length < 2) return;
 
       let namaPaste = parts[0];
-      let nilai = parseFloat(parts[masterData.areas.includes(parts[1]?.toUpperCase()) && parts.length >= 3 ? 2 : 1].replace(',', '.')) || 0;
+      // Cek apakah kolom kedua adalah nama Smelter yang ada di pengaturan
+      const isAreaColumn = masterData.areas.some(a => a.toLowerCase() === (parts[1] || '').toLowerCase());
+      
+      let nilai = 0;
+      if (isAreaColumn && parts.length >= 3) {
+        nilai = parseFloat(parts[2].replace(',', '.')) || 0;
+      } else {
+        nilai = parseFloat(parts[1]?.replace(',', '.')) || 0;
+      }
 
       const emp = personnel.find(p => p.nama.toLowerCase() === namaPaste.toLowerCase() && p.role === selectedRoleContext);
       if (emp) {
@@ -217,11 +243,10 @@ export default function App() {
     return total;
   };
 
-  // RUMUS DINAMIS (Otomatis menyesuaikan jumlah indikator target)
   const calculateScore = (acc, um, roleId) => {
     const cats = getActiveCategories(roleId);
     const targetedCats = cats.filter(c => c.isTargeted);
-    const weightPerCat = 100 / targetedCats.length; // Bobot dibagi rata otomatis
+    const weightPerCat = 100 / targetedCats.length; 
 
     let sAwal = 100;
     targetedCats.forEach(c => {
@@ -234,7 +259,7 @@ export default function App() {
     if(sAwal < 0) sAwal = 0;
 
     let tPoin = parseInt(um.kepatuhan) || 75;
-    cats.filter(c => !c.isTargeted).forEach(c => tPoin += (acc[c.key] || 0)); // Extra Poin
+    cats.filter(c => !c.isTargeted).forEach(c => tPoin += (acc[c.key] || 0)); 
 
     const penalti = -((parseInt(um.pelanggaran) || 0) * 5);
     const sAkhir = sAwal + tPoin + penalti;
@@ -265,7 +290,7 @@ export default function App() {
 
   const exportToExcel = (area, personnelList) => {
     const cats = getActiveCategories(selectedRoleContext);
-    let csvContent = "Nama,Area,";
+    let csvContent = "Nama,Smelter/Area,";
     cats.forEach(c => csvContent += `"${c.label}",`);
     csvContent += "Skor Awal,+ Poin,Pelanggaran,Penalti,Kepatuhan,Keterangan,Skor Akhir,Nilai\n";
 
@@ -283,16 +308,27 @@ export default function App() {
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `Laporan_KPI_${selectedRoleContext}_Area_${area}_${selectedPeriod}.csv`;
+    link.download = `Laporan_KPI_${selectedRoleContext}_${area}_${selectedPeriod}.csv`;
     link.click();
   };
+
+  // MENDAPATKAN DAFTAR AREA AKTIF & AREA TIDAK DIKENAL
+  const getActiveAreasForView = (personnelList) => {
+    const areas = [...masterData.areas];
+    const hasUnlisted = personnelList.some(p => !masterData.areas.includes(p.area));
+    if (hasUnlisted) areas.push('Area Tidak Dikenal (Perlu Diupdate)');
+    return areas;
+  };
+
+  const filteredPersonnel = personnel.filter(p => p.role === selectedRoleContext);
+  const searchResult = personnel.filter(p => p.nama.toLowerCase().includes(searchQuery.toLowerCase()));
 
   if (!isDbReady) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-100 text-emerald-700">
         <div className="flex flex-col items-center">
           <svg className="animate-spin h-10 w-10 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-          <span className="font-semibold tracking-wider">Memuat Database (Periode {selectedPeriod})...</span>
+          <span className="font-semibold tracking-wider">Memuat Database...</span>
         </div>
       </div>
     );
@@ -313,7 +349,7 @@ export default function App() {
           <div className="flex items-center gap-3">
             <div className="bg-emerald-900 px-4 py-2 rounded-lg border border-emerald-700 flex items-center gap-2 shadow-inner">
               <Calendar size={16} className="text-emerald-300"/>
-              {/* KALENDER WAKTU DINAMIS (POIN A) */}
+              {/* KALENDER WAKTU DINAMIS */}
               <input type="month" className="bg-transparent text-white font-bold text-sm focus:outline-none cursor-pointer custom-month-input" 
                 value={selectedPeriod} onChange={(e) => setSelectedPeriod(e.target.value)} />
             </div>
@@ -332,7 +368,7 @@ export default function App() {
           <button onClick={() => setActiveTab('pengaturan')} className={`px-4 py-3 font-semibold rounded-t-lg transition-colors flex items-center gap-2 ml-auto ${activeTab === 'pengaturan' ? 'bg-slate-800 text-white border-t-2 border-emerald-500' : 'text-slate-500 hover:bg-slate-200'}`}><Settings size={18}/> Pengaturan</button>
         </div>
 
-        {/* ROLE FILTER (Kecuali DB & Pengaturan) */}
+        {/* ROLE FILTER */}
         {['input', 'laporan', 'dashboard'].includes(activeTab) && (
           <div className="mb-4 bg-white p-4 rounded-lg shadow-sm flex flex-wrap items-center gap-3 border border-slate-200">
             <span className="font-bold text-slate-700 mr-2">Tampilkan Data Untuk:</span>
@@ -347,29 +383,31 @@ export default function App() {
 
         {/* --- TAB DASHBOARD --- */}
         {activeTab === 'dashboard' && (
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-            <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-200">
-              <TrendingDown className="text-red-500" size={28} />
-              <h2 className="text-xl font-bold text-slate-800">Defisit Target ({masterData.roles.find(r=>r.id===selectedRoleContext)?.name}) - {selectedPeriod}</h2>
-            </div>
-            
-            <div className="overflow-x-auto max-h-[500px] border border-slate-200 rounded-lg shadow-inner">
-              <table className="w-full text-sm text-left">
-                <thead className="bg-slate-800 text-white sticky top-0">
-                  <tr><th className="p-3">Nama Karyawan</th><th className="p-3 text-center">Area</th><th className="p-3">Indikator</th><th className="p-3 text-center bg-slate-700">Tercapai</th><th className="p-3 text-center bg-slate-700">Target</th><th className="p-3 text-center bg-red-600">Kekurangan</th></tr>
-                </thead>
-                <tbody>
-                  {getDefisitTarget().length === 0 ? (
-                    <tr><td colSpan="6" className="p-6 text-center text-slate-500 font-bold bg-slate-50">🎉 Semua karyawan memenuhi target bulan ini.</td></tr>
-                  ) : (
-                    getDefisitTarget().map((item) => (
-                      <tr key={item.id} className="border-b border-slate-200 hover:bg-slate-50">
-                        <td className="p-3 font-bold text-slate-700">{item.nama}</td><td className="p-3 text-center font-bold text-slate-500">{item.area}</td><td className="p-3 font-medium">{item.indikator}</td><td className="p-3 text-center">{item.tercapai}</td><td className="p-3 text-center">{item.target}</td><td className="p-3 text-center font-bold text-red-600 bg-red-50/50"> - {item.kurang}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+              <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-200">
+                <TrendingDown className="text-red-500" size={28} />
+                <h2 className="text-xl font-bold text-slate-800">Defisit Target ({masterData.roles.find(r=>r.id===selectedRoleContext)?.name}) - {selectedPeriod}</h2>
+              </div>
+              
+              <div className="overflow-x-auto max-h-[500px] border border-slate-200 rounded-lg shadow-inner">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-slate-800 text-white sticky top-0">
+                    <tr><th className="p-3">Nama Karyawan</th><th className="p-3 text-center">Smelter/Area</th><th className="p-3">Indikator</th><th className="p-3 text-center bg-slate-700">Tercapai</th><th className="p-3 text-center bg-slate-700">Target</th><th className="p-3 text-center bg-red-600">Kekurangan</th></tr>
+                  </thead>
+                  <tbody>
+                    {getDefisitTarget().length === 0 ? (
+                      <tr><td colSpan="6" className="p-6 text-center text-slate-500 font-bold bg-slate-50">🎉 Semua karyawan memenuhi target bulan ini.</td></tr>
+                    ) : (
+                      getDefisitTarget().map((item) => (
+                        <tr key={item.id} className="border-b border-slate-200 hover:bg-slate-50">
+                          <td className="p-3 font-bold text-slate-700">{item.nama}</td><td className="p-3 text-center font-bold text-slate-500">{item.area}</td><td className="p-3 font-medium">{item.indikator}</td><td className="p-3 text-center">{item.tercapai}</td><td className="p-3 text-center">{item.target}</td><td className="p-3 text-center font-bold text-red-600 bg-red-50/50"> - {item.kurang}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
@@ -377,18 +415,18 @@ export default function App() {
         {/* --- TAB DATABASE KARYAWAN --- */}
         {activeTab === 'database' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 h-fit">
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 lg:col-span-1 h-fit">
               <h2 className="text-lg font-bold mb-4 pb-2 border-b">Tambah Karyawan</h2>
               <form onSubmit={handleAddPersonnel} className="space-y-4">
                 <div><label className="block text-sm text-slate-600 mb-1">Nama Lengkap</label><input type="text" required className="w-full border p-2 rounded" value={newEmp.nama} onChange={e => setNewEmp({...newEmp, nama: e.target.value})} /></div>
                 <div>
-                  <label className="block text-sm text-slate-600 mb-1">Area Dinamis</label>
+                  <label className="block text-sm text-slate-600 mb-1">Pilih Smelter / Area</label>
                   <select className="w-full border p-2 rounded" value={newEmp.area} onChange={e => setNewEmp({...newEmp, area: e.target.value})}>
-                    {masterData.areas.map(a => <option key={a} value={a}>Area {a}</option>)}
+                    {masterData.areas.map(a => <option key={a} value={a}>{a}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm text-slate-600 mb-1">Role Dinamis</label>
+                  <label className="block text-sm text-slate-600 mb-1">Role / Jabatan</label>
                   <select className="w-full border p-2 rounded" value={newEmp.role} onChange={e => setNewEmp({...newEmp, role: e.target.value})}>
                     {masterData.roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                   </select>
@@ -404,25 +442,35 @@ export default function App() {
               </div>
               <div className="overflow-y-auto max-h-[500px] border rounded shadow-inner">
                 <table className="w-full text-left text-sm border-collapse">
-                  <thead className="bg-slate-100 sticky top-0"><tr className="shadow-sm"><th className="p-3">Nama</th><th className="p-3 text-center">Area</th><th className="p-3 text-center">Role</th><th className="p-3 text-center">Aksi</th></tr></thead>
+                  <thead className="bg-slate-100 sticky top-0"><tr className="shadow-sm"><th className="p-3">Nama</th><th className="p-3 text-center">Smelter / Area</th><th className="p-3 text-center">Role</th><th className="p-3 text-center">Aksi</th></tr></thead>
                   <tbody>
-                    {personnel.filter(p => p.nama.toLowerCase().includes(searchQuery.toLowerCase())).map(p => (
-                      <tr key={p.id} className="border-b hover:bg-slate-50">
-                        {editingId === p.id ? (
-                          <>
-                            <td className="p-2"><input type="text" className="border p-1 w-full text-sm" value={editFormData.nama} onChange={(e) => setEditFormData({...editFormData, nama: e.target.value})} /></td>
-                            <td className="p-2 text-center"><select className="border p-1 text-sm" value={editFormData.area} onChange={(e) => setEditFormData({...editFormData, area: e.target.value})}>{masterData.areas.map(a => <option key={a} value={a}>{a}</option>)}</select></td>
-                            <td className="p-2 text-center"><select className="border p-1 text-sm" value={editFormData.role} onChange={(e) => setEditFormData({...editFormData, role: e.target.value})}>{masterData.roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></td>
-                            <td className="p-2 text-center space-x-2"><button onClick={handleSaveEdit} className="text-white bg-emerald-600 px-2 py-1 rounded text-xs">Simpan</button><button onClick={() => setEditingId(null)} className="bg-slate-200 px-2 py-1 rounded text-xs">Batal</button></td>
-                          </>
-                        ) : (
-                          <>
-                            <td className="p-3 font-medium">{p.nama}</td><td className="p-3 text-center font-bold text-slate-500">{p.area}</td><td className="p-3 text-center"><span className="px-2 py-1 bg-slate-200 rounded text-xs font-bold">{masterData.roles.find(r=>r.id===p.role)?.name || p.role}</span></td>
-                            <td className="p-3 text-center space-x-3"><button onClick={() => handleEditClick(p)} className="text-blue-500"><Edit size={16}/></button><button onClick={() => setDeleteModal({ show: true, id: p.id, nama: p.nama })} className="text-red-500"><Trash2 size={16}/></button></td>
-                          </>
-                        )}
-                      </tr>
-                    ))}
+                    {searchResult.length === 0 ? (
+                      <tr><td colSpan="4" className="text-center p-6 text-slate-500">Karyawan tidak ditemukan.</td></tr>
+                    ) : (
+                      searchResult.map(p => {
+                        const isAreaUnknown = !masterData.areas.includes(p.area);
+                        return (
+                        <tr key={p.id} className={`border-b hover:bg-slate-50 ${isAreaUnknown ? 'bg-red-50' : ''}`}>
+                          {editingId === p.id ? (
+                            <>
+                              <td className="p-2"><input type="text" className="border p-1 w-full text-sm" value={editFormData.nama} onChange={(e) => setEditFormData({...editFormData, nama: e.target.value})} /></td>
+                              <td className="p-2 text-center"><select className="border p-1 text-sm" value={editFormData.area} onChange={(e) => setEditFormData({...editFormData, area: e.target.value})}>{masterData.areas.map(a => <option key={a} value={a}>{a}</option>)}</select></td>
+                              <td className="p-2 text-center"><select className="border p-1 text-sm" value={editFormData.role} onChange={(e) => setEditFormData({...editFormData, role: e.target.value})}>{masterData.roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></td>
+                              <td className="p-2 text-center space-x-2"><button onClick={handleSaveEdit} className="text-white bg-emerald-600 px-2 py-1 rounded text-xs">Simpan</button><button onClick={() => setEditingId(null)} className="bg-slate-200 px-2 py-1 rounded text-xs">Batal</button></td>
+                            </>
+                          ) : (
+                            <>
+                              <td className="p-3 font-medium">{p.nama}</td>
+                              <td className="p-3 text-center font-bold text-slate-500">
+                                {p.area} {isAreaUnknown && <span className="text-red-500 text-xs block">(Perlu Diupdate)</span>}
+                              </td>
+                              <td className="p-3 text-center"><span className="px-2 py-1 bg-slate-200 rounded text-xs font-bold">{masterData.roles.find(r=>r.id===p.role)?.name || p.role}</span></td>
+                              <td className="p-3 text-center space-x-3"><button onClick={() => handleEditClick(p)} className="text-blue-500"><Edit size={16}/></button><button onClick={() => setDeleteModal({ show: true, id: p.id, nama: p.nama })} className="text-red-500"><Trash2 size={16}/></button></td>
+                            </>
+                          )}
+                        </tr>
+                      )})
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -445,12 +493,15 @@ export default function App() {
                 </div>
                 <div>
                   <h2 className="font-bold text-lg mb-4">Preview ({masterData.roles.find(r=>r.id===selectedRoleContext)?.name})</h2>
-                  {masterData.areas.map(area => {
-                    const areaPersonnel = personnel.filter(p => p.role === selectedRoleContext && p.area === area);
+                  {getActiveAreasForView(filteredPersonnel).map(area => {
+                    // Cek apakan area "Tidak dikenal"
+                    const isUnknown = area.includes('Tidak Dikenal');
+                    const areaPersonnel = filteredPersonnel.filter(p => isUnknown ? !masterData.areas.includes(p.area) : p.area === area);
+                    
                     if (areaPersonnel.length === 0) return null;
                     return (
                       <div key={area} className="mb-4">
-                        <div className="bg-slate-200 px-3 py-1.5 rounded-t-lg font-bold text-sm">Area {area}</div>
+                        <div className={`px-3 py-1.5 rounded-t-lg font-bold text-sm ${isUnknown ? 'bg-red-200 text-red-800' : 'bg-slate-200 text-slate-700'}`}>{area}</div>
                         <div className="overflow-x-auto border border-t-0 rounded-b-lg">
                           <table className="w-full text-xs"><thead className="bg-slate-50 border-b"><tr><th className="p-2 text-left">Nama</th>{getActiveCategories(selectedRoleContext).map(c => <th key={c.key} className="p-2 text-center">{c.label}</th>)}</tr></thead>
                             <tbody>{areaPersonnel.map(p => (<tr key={p.id} className="border-b"><td className="p-2">{p.nama}</td>{getActiveCategories(selectedRoleContext).map(c => <td key={c.key} className="p-2 text-center">{weeklyData[p.id]?.[selectedWeek]?.[c.key] || '-'}</td>)}</tr>))}</tbody>
@@ -464,23 +515,25 @@ export default function App() {
           </div>
         )}
 
-        {/* --- TAB LAPORAN (Rumus Dinamis) --- */}
+        {/* --- TAB LAPORAN --- */}
         {activeTab === 'laporan' && (
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
              <div className="mb-6 pb-4 border-b border-slate-200"><h2 className="font-bold text-2xl">Laporan KPI - {selectedPeriod}</h2></div>
-             {masterData.areas.map(area => {
-                const areaPersonnel = personnel.filter(p => p.role === selectedRoleContext && p.area === area);
+             {getActiveAreasForView(filteredPersonnel).map(area => {
+                const isUnknown = area.includes('Tidak Dikenal');
+                const areaPersonnel = filteredPersonnel.filter(p => isUnknown ? !masterData.areas.includes(p.area) : p.area === area);
                 if (areaPersonnel.length === 0) return null;
+                
                 return (
                   <div key={area} className="mb-10 overflow-x-auto shadow-sm rounded-lg">
-                    <div className="flex justify-between items-center bg-slate-800 text-white px-4 py-3 rounded-t-lg">
-                      <h3 className="font-bold text-lg flex items-center gap-2"><Table size={18} className="text-emerald-400" /> Area {area}</h3>
+                    <div className={`flex justify-between items-center text-white px-4 py-3 rounded-t-lg ${isUnknown ? 'bg-red-800' : 'bg-slate-800'}`}>
+                      <h3 className="font-bold text-lg flex items-center gap-2"><Table size={18} className="text-emerald-400" /> {area}</h3>
                       <button onClick={() => exportToExcel(area, areaPersonnel)} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-1.5 rounded flex items-center gap-2"><Download size={14} /> Export</button>
                     </div>
                     <table className="w-full text-xs border-collapse whitespace-nowrap border-x border-b border-slate-300">
                       <thead className="bg-slate-700 text-white">
                         <tr>
-                          <th className="p-3 text-left">Nama Lengkap</th><th className="p-3 text-center">Area</th>
+                          <th className="p-3 text-left">Nama Lengkap</th><th className="p-3 text-center">Smelter/Area</th>
                           {getActiveCategories(selectedRoleContext).map(c => <th key={c.key} className="p-3 border-l border-slate-600">{c.label}</th>)}
                           <th className="p-3 bg-slate-600 border-l border-slate-500">Skor Awal</th><th className="p-3 bg-slate-600">+ Poin</th><th className="p-3 bg-slate-600">Pelanggaran</th><th className="p-3 bg-slate-600">Penalti</th><th className="p-3 bg-emerald-800 border-l border-emerald-700">Kepatuhan</th><th className="p-3 bg-emerald-800">Ket.</th><th className="p-3 bg-emerald-700 border-l border-emerald-600">SKOR AKHIR</th><th className="p-3 bg-emerald-600 border-l border-emerald-500">NILAI</th>
                         </tr>
@@ -514,35 +567,31 @@ export default function App() {
           </div>
         )}
 
-        {/* --- TAB PENGATURAN (MASTER DATA) - POIN B --- */}
+        {/* --- TAB PENGATURAN (MASTER DATA) --- */}
         {activeTab === 'pengaturan' && (
           <div className="bg-slate-800 p-6 rounded-xl shadow-lg border border-slate-700 text-slate-200">
             <h2 className="font-bold text-2xl mb-2 text-white flex items-center gap-2"><Settings /> Pengaturan Sistem (Master Data)</h2>
-            <p className="text-sm text-slate-400 mb-8 border-b border-slate-700 pb-4">Setiap perubahan di sini akan otomatis mengubah seluruh struktur tabel, dropdown, dan rumus penilaian di aplikasi secara instan.</p>
+            <p className="text-sm text-slate-400 mb-8 border-b border-slate-700 pb-4">Setiap perubahan di sini akan otomatis mengubah seluruh struktur tabel dan dropdown di aplikasi secara instan.</p>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              {/* ATUR AREA */}
-              <div className="bg-slate-900 p-5 rounded-lg border border-slate-700">
-                <h3 className="font-bold text-white mb-4 flex items-center gap-2">Manajemen Area</h3>
+              <div className="bg-slate-900 p-5 rounded-lg border border-slate-700 h-fit">
+                <h3 className="font-bold text-white mb-4 flex items-center gap-2">Manajemen Smelter / Area</h3>
                 <div className="flex gap-2 mb-4">
-                  <input type="text" placeholder="Nama Area Baru (Misal: G)" className="flex-1 bg-slate-800 border border-slate-600 rounded p-2 text-sm text-white focus:ring-emerald-500" value={newArea} onChange={e=>setNewArea(e.target.value.toUpperCase())} />
+                  <input type="text" placeholder="Misal: Smelter G" className="flex-1 bg-slate-800 border border-slate-600 rounded p-2 text-sm text-white focus:ring-emerald-500" value={newArea} onChange={e=>setNewArea(e.target.value)} />
                   <button onClick={handleAddArea} className="bg-emerald-600 hover:bg-emerald-500 px-4 py-2 rounded text-white font-bold text-sm"><Plus size={16}/></button>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {masterData.areas.map(area => (
                     <div key={area} className="bg-slate-700 px-3 py-1.5 rounded flex items-center gap-2 text-sm font-bold text-emerald-300">
-                      Area {area} <button onClick={() => handleDeleteArea(area)} className="text-red-400 hover:text-red-300"><Trash2 size={14}/></button>
+                      {area} <button onClick={() => handleDeleteArea(area)} className="text-red-400 hover:text-red-300"><Trash2 size={14}/></button>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* ATUR TARGET INDIKATOR */}
-              <div className="bg-slate-900 p-5 rounded-lg border border-slate-700 md:col-span-2">
+              <div className="bg-slate-900 p-5 rounded-lg border border-slate-700">
                 <h3 className="font-bold text-white mb-4">Ubah Target Indikator</h3>
-                <p className="text-xs text-slate-400 mb-4">Mengubah nilai target akan secara otomatis menghitung ulang bobot (persentase) pada Skor Awal di halaman laporan.</p>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 gap-6">
                   {masterData.roles.map(r => (
                     <div key={r.id} className="bg-slate-800 p-4 rounded border border-slate-600">
                       <h4 className="font-bold text-emerald-400 mb-3 border-b border-slate-700 pb-2">{r.name}</h4>
