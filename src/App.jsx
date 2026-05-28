@@ -67,24 +67,14 @@ export default function App() {
     return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
   };
 
-  const generatePeriodList = () => {
-    const periods = [];
-    const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-    const currentYear = new Date().getFullYear();
-    for(let y = currentYear - 1; y <= currentYear + 1; y++) {
-      for(let m = 0; m < 12; m++) {
-        periods.push({ id: `${y}-${String(m+1).padStart(2, '0')}`, label: `${months[m]} ${y}` });
-      }
-    }
-    return periods;
-  };
-
+  // =====================================================
   // STATE UTAMA
+  // =====================================================
   const [currentUser, setCurrentUser] = useState(null); 
   const [loginForm, setLoginForm] = useState({ idKaryawan: '', password: '' });
   const [activeTab, setActiveTab] = useState('dashboard');
   const [dashboardMode, setDashboardMode] = useState('bulanan'); 
-  const [activeSettingTab, setActiveSettingTab] = useState('akun'); // State untuk sub-menu Pengaturan
+  const [activeSettingTab, setActiveSettingTab] = useState('akun'); 
   const [selectedPeriod, setSelectedPeriod] = useState(getCurrentMonth());
   const [user, setUser] = useState(null);
   const [isDbReady, setIsDbReady] = useState(false);
@@ -153,23 +143,36 @@ export default function App() {
   ];
 
   // =====================================================
-  // 1. SISTEM JEBAKAN TOMBOL KEMBALI HP (EXIT MODAL TRAP)
+  // 1. SISTEM JEBAKAN TOMBOL KEMBALI HP (SEMPURNA)
   // =====================================================
   useEffect(() => {
-    window.history.pushState({ noBackExitsApp: true }, '');
+    // 1. Pasang 'state palsu' agar tombol back HP memicu event, bukan langsung keluar
+    window.history.pushState({ trap: true }, '');
+
     const handlePopState = (e) => {
       e.preventDefault();
-      setShowExitModal(true); 
-      window.history.pushState({ noBackExitsApp: true }, ''); 
+      // 2. Saat back ditekan, tampilkan konfirmasi keluar
+      setShowExitModal(true);
     };
+
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  }, []); // Hanya dipanggil sekali saat aplikasi dimuat
+
+  const cancelExitApp = () => {
+    setShowExitModal(false);
+    // 3. Jika batal keluar, pasang ulang 'state palsu' agar jebakan aktif kembali
+    window.history.pushState({ trap: true }, '');
+  };
 
   const confirmExitApp = () => {
     setShowExitModal(false);
-    window.history.go(-2); 
-    setTimeout(() => { window.close(); }, 100);
+    // 4. Jika yakin keluar, tutup paksa aplikasi
+    window.close();
+    // Fallback: Jika window.close diblokir browser, paksa mundur 1 langkah keluar dari aplikasi
+    setTimeout(() => {
+      window.history.back();
+    }, 100);
   };
 
   // =====================================================
@@ -340,7 +343,6 @@ export default function App() {
     saveMasterData({ ...masterData, categories: updatedCategories }); setNewCatLabel(''); setNewCatTarget(0);
   };
 
-  // --- CRUD KARYAWAN (TELAH DIPERBAIKI) ---
   const handleAddPersonnel = async (e) => {
     e.preventDefault(); if (!newEmp.nama.trim()) return showToast("Nama karyawan wajib diisi!", "error");
     try {
@@ -350,7 +352,6 @@ export default function App() {
     } catch (error) { showToast("Gagal menyimpan: " + error.message, "error"); }
   };
 
-  // FUNGSI INI KINI SUDAH ADA KEMBALI
   const handleEditClick = (emp) => {
     setEditingId(emp.id);
     setEditFormData({ nama: emp.nama || '', area: emp.area || '', role: emp.role || '' });
@@ -367,7 +368,6 @@ export default function App() {
     catch (error) { showToast("Gagal menghapus: " + error.message, "error"); }
   };
 
-  // FUNGSI INI KINI SUDAH ADA KEMBALI (Khusus Pengaturan Sandi)
   const handleEditCredClick = (emp) => {
     setEditingCredId(emp.id);
     setCredFormData({ idKaryawan: emp.idKaryawan || '', password: emp.password || '' });
@@ -564,7 +564,7 @@ export default function App() {
             <h3 className="text-xl font-black text-slate-800 mb-2">Keluar Aplikasi?</h3>
             <p className="text-slate-500 text-sm mb-6">Apakah Anda yakin ingin keluar dari Portal KPI HSE BUFN 2?</p>
             <div className="flex gap-3 w-full">
-              <button onClick={() => setShowExitModal(false)} className="flex-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 font-bold rounded-xl text-slate-700 text-sm transition-colors">Batal</button>
+              <button onClick={cancelExitApp} className="flex-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 font-bold rounded-xl text-slate-700 text-sm transition-colors">Batal</button>
               <button onClick={confirmExitApp} className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-sm shadow-md transition-colors">Ya, Keluar</button>
             </div>
           </div>
@@ -632,14 +632,20 @@ export default function App() {
                 </div>
               </div>
               <div className="flex items-center gap-3">
+                
+                {/* KALENDER DARK MODE KUSTOM */}
                 <div className="bg-emerald-900 px-4 py-2.5 md:py-2 rounded-lg border border-emerald-700 flex items-center gap-2 shadow-inner w-full md:w-auto justify-between">
                   <div className="flex items-center gap-2">
                     <Calendar size={16} className="text-emerald-300"/>
-                    <select className="bg-transparent text-white font-bold text-sm focus:outline-none cursor-pointer outline-none appearance-none pr-2" value={selectedPeriod} onChange={(e) => setSelectedPeriod(e.target.value)}>
-                      {generatePeriodList().map(p => <option key={p.id} value={p.id} className="text-slate-800">{p.label}</option>)}
-                    </select>
+                    <input 
+                      type="month" 
+                      className="bg-transparent text-white font-bold text-sm focus:outline-none cursor-pointer outline-none w-[110px] [color-scheme:dark]" 
+                      value={selectedPeriod} 
+                      onChange={(e) => setSelectedPeriod(e.target.value)} 
+                    />
                   </div>
                 </div>
+
                 <button onClick={handleLogout} className="bg-red-700 hover:bg-red-600 text-white p-2.5 md:px-3 md:py-2 rounded-lg border border-red-800 font-bold text-xs flex items-center justify-center gap-1.5 shadow transition-colors w-12 md:w-auto"><LogOut size={16}/><span className="hidden md:inline">Keluar</span></button>
               </div>
             </div>
