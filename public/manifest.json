@@ -1,0 +1,15 @@
+{
+  "short_name": "KPI HSE",
+  "name": "KPI HSE BUFN 2",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "type": "image/png",
+      "sizes": "1024x1024"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#064e3b",
+  "display": "standalone",
+  "theme_color": "#064e3b"
+}
