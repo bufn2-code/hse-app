@@ -94,6 +94,7 @@ export default function App() {
   const [dashboardMode, setDashboardMode] = useState('bulanan'); 
   const [activeSettingTab, setActiveSettingTab] = useState('akun'); 
   const [selectedPeriod, setSelectedPeriod] = useState(getCurrentMonth());
+  const [user, setUser] = useState(null);
   const [isDbReady, setIsDbReady] = useState(false);
   
   const [deferredPrompt, setDeferredPrompt] = useState(null);
@@ -175,41 +176,38 @@ export default function App() {
       
       setMasterData(prev => ({ ...prev, lastDataUpdate: timestampString }));
       await setDoc(doc(db, 'artifacts', getAppId(), 'settings', 'master'), { lastDataUpdate: timestampString }, { merge: true });
+      showToast("Waktu sinkronisasi berhasil diperbarui!");
     } catch (error) {
       console.error("Gagal update timestamp:", error);
     }
   };
 
   // =====================================================
-  // 1. SISTEM JEBAKAN TOMBOL KEMBALI HP (SUDAH DIPERBAIKI)
+  // SISTEM JEBAKAN TOMBOL KEMBALI HP
   // =====================================================
   useEffect(() => {
-    // Memberikan riwayat palsu agar back button ada yang di-pop
-    window.history.pushState(null, '', window.location.href);
-    
+    window.history.pushState({ trap: true }, '');
     const handlePopState = (e) => {
       e.preventDefault();
       setShowExitModal(true); 
-      // Tambahkan history palsu lagi agar tetap terjebak
-      window.history.pushState(null, '', window.location.href);
     };
-    
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
   const cancelExitApp = () => {
     setShowExitModal(false);
+    window.history.pushState({ trap: true }, '');
   };
 
   const confirmExitApp = () => {
     setShowExitModal(false);
     window.close();
-    setTimeout(() => { window.history.go(-2); }, 100);
+    setTimeout(() => { window.history.back(); }, 100);
   };
 
   // =====================================================
-  // 2. SISTEM POPUP INSTALASI PWA (MOBILE DETECT)
+  // POPUP MANIFEST PWA (MOBILE DETECT)
   // =====================================================
   useEffect(() => {
     const handleInstallPrompt = (e) => {
@@ -242,10 +240,9 @@ export default function App() {
   };
 
   // =====================================================
-  // 3. FIRESTORE SYNC INITIALIZER & AUTO LOGIN
+  // FIRESTORE SYNC INITIALIZER & SESI LOGIN PERMANEN
   // =====================================================
   useEffect(() => {
-    // Mengecek localStorage otomatis (Sesi Tetap Login)
     const savedUser = localStorage.getItem('bufn2_user_session');
     if (savedUser) {
       try { setCurrentUser(JSON.parse(savedUser)); } 
@@ -315,7 +312,7 @@ export default function App() {
   }, [activeTab, dashboardMode, selectedPeriod, personnel, selectedRoleContext]);
 
   // =====================================================
-  // 5. LOGIN & LOGOUT EXECUTOR (AUTO SAVE SESSION)
+  // LOGIN SUBMIT EXECUTOR (OTOMATIS TERSIMPAN)
   // =====================================================
   const handleLoginSubmit = (e) => {
     e.preventDefault();
@@ -347,8 +344,12 @@ export default function App() {
   const handleLogout = () => {
     setCurrentUser(null);
     setLoginForm({ idKaryawan: '', password: '' });
-    localStorage.removeItem('bufn2_user_session'); // Hapus sesi jika logout
+    localStorage.removeItem('bufn2_user_session'); 
     showToast("Berhasil keluar.");
+  };
+
+  const handleTabClick = (tabName) => {
+    setActiveTab(tabName);
   };
 
   const scrollToView = (e) => {
@@ -359,11 +360,8 @@ export default function App() {
   // OPERASIONAL KARYAWAN & MASTER DATA
   // =====================================================
   const saveMasterData = async (newData) => {
-    try { 
-      await setDoc(doc(db, 'artifacts', getAppId(), 'settings', 'master'), newData); 
-      await updateLastModified();
-      showToast("Master data disimpan!"); 
-    } catch (error) { showToast("Gagal menyimpan: " + error.message, "error"); }
+    try { await setDoc(doc(db, 'artifacts', getAppId(), 'settings', 'master'), newData); showToast("Master data disimpan!"); } 
+    catch (error) { showToast("Gagal menyimpan: " + error.message, "error"); }
   };
   const handleAddArea = () => {
     if(!newArea.trim()) return;
@@ -379,7 +377,7 @@ export default function App() {
     const updatedCategories = { ...masterData.categories };
     if (field === 'target') updatedCategories[roleId][catIndex].target = Number(value);
     if (field === 'label') updatedCategories[roleId][catIndex].label = value;
-    if (field === 'isTargeted') { updatedCategories[roleId][catIndex].isTargeted = value; if (!value) updatedCategories[roleId][catIndex].target = 0; }
+    if (field === 'isTargeted') { updatedCategories[roleId][catIndex].isTargeted = value === 'true'; if (value !== 'true') updatedCategories[roleId][catIndex].target = 0; }
     saveMasterData({ ...masterData, categories: updatedCategories });
   };
   const handleDeleteCategory = (roleId, catIndex) => {
@@ -399,7 +397,6 @@ export default function App() {
     try {
       const newId = Date.now().toString() + Math.random().toString(36).substr(2, 5);
       await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', newId), { id: newId, nama: newEmp.nama, area: newEmp.area, role: newEmp.role, idKaryawan: '', password: '' });
-      await updateLastModified();
       setNewEmp({ nama: '', area: safeAreas[0] || '', role: safeRoles[0]?.id || '' }); showToast("Karyawan baru terdaftar!");
     } catch (error) { showToast("Gagal menyimpan: " + error.message, "error"); }
   };
@@ -411,19 +408,13 @@ export default function App() {
 
   const handleSaveEdit = async () => {
     if (!editFormData.nama.trim()) return;
-    try { 
-      await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', editingId), { nama: editFormData.nama, area: editFormData.area, role: editFormData.role }, { merge: true }); 
-      await updateLastModified();
-      setEditingId(null); showToast("Profil diubah!"); 
-    } catch (error) { showToast("Gagal mengubah: " + error.message, "error"); }
+    try { await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', editingId), { nama: editFormData.nama, area: editFormData.area, role: editFormData.role }, { merge: true }); setEditingId(null); showToast("Profil diubah!"); } 
+    catch (error) { showToast("Gagal mengubah: " + error.message, "error"); }
   };
 
   const confirmDelete = async () => {
-    try { 
-      await deleteDoc(doc(db, 'artifacts', getAppId(), 'personnel', deleteModal.id)); 
-      await updateLastModified();
-      setDeleteModal({ show: false, id: null, nama: '' }); showToast("Data dihapus permanen!"); 
-    } catch (error) { showToast("Gagal menghapus: " + error.message, "error"); }
+    try { await deleteDoc(doc(db, 'artifacts', getAppId(), 'personnel', deleteModal.id)); setDeleteModal({ show: false, id: null, nama: '' }); showToast("Data dihapus permanen!"); } 
+    catch (error) { showToast("Gagal menghapus: " + error.message, "error"); }
   };
 
   const handleEditCredClick = (emp) => {
@@ -467,7 +458,7 @@ export default function App() {
     try {
       for (const empId of Object.keys(updates)) { await setDoc(doc(db, 'artifacts', getAppId(), `weekly_${selectedPeriod}`, empId), updates[empId], { merge: true }); }
       
-      await updateLastModified();
+      await updateLastModified(); // Catat waktu sinkronisasi
       
       setPasteText(''); showToast(`Berhasil merekap ${lineTotal} data!`);
       if(notFoundNames.length > 0) setPasteErrors(Array.from(new Set(notFoundNames)));
@@ -477,7 +468,7 @@ export default function App() {
   const handleMonthlyInput = async (empId, field, value) => {
     try { 
       await setDoc(doc(db, 'artifacts', getAppId(), `monthly_${selectedPeriod}`, empId), { [field]: value }, { merge: true }); 
-      await updateLastModified();
+      await updateLastModified(); // Catat waktu sinkronisasi
     } catch (error) { console.error(error); }
   };
 
@@ -584,7 +575,7 @@ export default function App() {
 
 
   // =====================================================
-  // RENDER PRAMUAT & JENDELA LOGIN
+  // RENDER PRAMUAT & JENDELA LOGIN 
   // =====================================================
   if (!isDbReady || isCheckingSession) {
     return (
@@ -674,7 +665,7 @@ export default function App() {
   }
 
   // =====================================================
-  // RENDER DASHBOARD CORE SYSTEM
+  // RENDER DASHBOARD CORE SYSTEM (AUTHENTICATED)
   // =====================================================
   return (
     <div className="min-h-[100dvh] bg-slate-50 text-slate-800 font-sans pb-12 relative overflow-hidden">
@@ -718,7 +709,8 @@ export default function App() {
                 <Calendar size={16} className="text-emerald-300"/>
                 <input 
                   type="month" 
-                  className="bg-transparent text-white font-bold text-sm focus:outline-none cursor-pointer outline-none w-[110px] [color-scheme:dark]" 
+                  className="bg-transparent text-white font-bold text-sm focus:outline-none cursor-pointer outline-none w-[110px]" 
+                  style={{ colorScheme: 'dark' }}
                   value={selectedPeriod} 
                   onChange={(e) => setSelectedPeriod(e.target.value)} 
                 />
@@ -732,16 +724,16 @@ export default function App() {
       <main className="max-w-7xl mx-auto mt-6 px-4">
         {/* TABS NAVIGATION */}
         <div className="flex overflow-x-auto whitespace-nowrap space-x-2 border-b border-slate-200 mb-6 pb-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
-          <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'dashboard' ? 'bg-white text-emerald-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}><LayoutDashboard size={16}/> Dashboard</button>
+          <button onClick={() => handleTabClick('dashboard')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'dashboard' ? 'bg-white text-emerald-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}><LayoutDashboard size={16}/> Dashboard</button>
           {currentUser.role === 'Admin' && (
             <>
-              <button onClick={() => setActiveTab('database')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'database' ? 'bg-white text-emerald-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}><Database size={16}/> Karyawan</button>
-              <button onClick={() => setActiveTab('input')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'input' ? 'bg-white text-emerald-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}><ClipboardPaste size={16}/> Input Nilai</button>
+              <button onClick={() => handleTabClick('database')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'database' ? 'bg-white text-emerald-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}><Database size={16}/> Karyawan</button>
+              <button onClick={() => handleTabClick('input')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'input' ? 'bg-white text-emerald-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}><ClipboardPaste size={16}/> Input Nilai</button>
             </>
           )}
-          <button onClick={() => setActiveTab('laporan')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'laporan' ? 'bg-white text-emerald-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}><Table size={16}/> Laporan</button>
+          <button onClick={() => handleTabClick('laporan')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'laporan' ? 'bg-white text-emerald-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}><Table size={16}/> Laporan</button>
           {currentUser.role === 'Admin' && (
-            <button onClick={() => setActiveTab('pengaturan')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'pengaturan' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:bg-slate-200'}`}><Settings size={16}/> Pengaturan</button>
+            <button onClick={() => handleTabClick('pengaturan')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'pengaturan' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:bg-slate-200'}`}><Settings size={16}/> Pengaturan</button>
           )}
         </div>
 
@@ -769,11 +761,6 @@ export default function App() {
                   Last Update : {masterData.lastDataUpdate || 'Belum ada data'}
                 </p>
               </div>
-              {currentUser.role === 'Admin' && (
-                <button onClick={updateLastModified} className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] md:text-xs font-bold px-3 py-2 rounded-xl shadow-sm transition-all active:scale-95 whitespace-nowrap border border-emerald-700">
-                  Update Waktu
-                </button>
-              )}
             </div>
 
             {isManager && (
@@ -1189,9 +1176,9 @@ export default function App() {
                 )}
               </div>
             )}
-          </main>
-        </div>
-      )}
+          </div>
+        )}
+      </main>
 
       {/* COMPONENT MODAL CUSTOM (ERROR TYPO EXCEL) */}
       {pasteErrors.length > 0 && (
