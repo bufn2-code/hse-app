@@ -142,12 +142,16 @@ export default function App() {
   const [loadingYearly, setLoadingYearly] = useState(false);
 
   const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'bufn2-kpi-app';
-  const getActiveCategories = (roleId) => masterData.categories[roleId] || [];
+  
+  // PENGECEKAN AMAN: Menghindari error `undefined`
+  const getActiveCategories = (roleId) => (masterData.categories && masterData.categories[roleId]) || [];
+  const safeRoles = masterData.roles || [];
+  const safeAreas = masterData.areas || [];
 
   const getAllUniqueCategories = () => {
     const allCats = [];
-    masterData.roles.forEach(r => {
-      masterData.categories[r.id]?.forEach(c => {
+    safeRoles.forEach(r => {
+      (masterData.categories[r.id] || []).forEach(c => {
         if (!allCats.find(existing => existing.key === c.key)) {
           allCats.push(c);
         }
@@ -176,14 +180,25 @@ export default function App() {
       const unsubSettings = onSnapshot(doc(db, 'artifacts', appId, 'settings', 'master'), (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
-          if (!data.categories) data.categories = defaultSettings.categories;
-          setMasterData(data);
+          
+          // ANTI-CRASH: Memastikan role wajib ada meskipun pakai database versi lama
+          const validatedRoles = data.roles && data.roles.length > 0 ? data.roles : defaultSettings.roles;
+          if (!validatedRoles.find(r => r.id === 'Admin')) validatedRoles.push({ id: 'Admin', name: 'Admin Sistem' });
+          if (!validatedRoles.find(r => r.id === 'Foreman')) validatedRoles.push({ id: 'Foreman', name: 'Foreman' });
+
+          const safeData = {
+            areas: data.areas && data.areas.length > 0 ? data.areas : defaultSettings.areas,
+            roles: validatedRoles,
+            categories: data.categories || defaultSettings.categories
+          };
+          
+          setMasterData(safeData);
           setNewEmp(prev => ({
             ...prev, 
-            area: prev.area || data.areas?.[0] || '', 
-            role: prev.role || data.roles?.[0]?.id || ''
+            area: prev.area || safeData.areas[0] || '', 
+            role: prev.role || safeData.roles[0]?.id || ''
           }));
-          if(!newCatRole && data.roles?.[0]?.id) setNewCatRole(data.roles[0].id);
+          if(!newCatRole && safeData.roles[0]?.id) setNewCatRole(safeData.roles[0].id);
         } else {
           setDoc(doc(db, 'artifacts', appId, 'settings', 'master'), defaultSettings);
         }
@@ -217,12 +232,13 @@ export default function App() {
     return () => { unsubs.forEach(u => u()); };
   }, [user, selectedPeriod]);
 
-  // PROTEKSI KONTEKS ROLE BAGI KARYAWAN BIASA
+  // PROTEKSI ROLE FILTER
+  const isManager = currentUser && ['Admin', 'Foreman', 'WFSO'].includes(currentUser.role);
   useEffect(() => {
-    if (currentUser && currentUser.role !== 'Admin' && currentUser.role !== 'Foreman') {
-      setSelectedRoleContext(currentUser.role);
+    if (currentUser && !isManager) {
+      setSelectedRoleContext(currentUser.role); // Paksa Karyawan biasa di role-nya sendiri
     }
-  }, [currentUser]);
+  }, [currentUser, isManager]);
 
   useEffect(() => {
     if (activeTab === 'dashboard' && dashboardMode === 'tahunan' && personnel.length > 0) {
@@ -238,7 +254,6 @@ export default function App() {
 
     if (!username || !password) return showToast("Harap isi semua kolom login!", "error");
 
-    // Skenario 1: Master bypass akun cadangan awal
     if (username.toLowerCase() === 'admin' && password === 'adminbufn2') {
       setCurrentUser({ id: 'master-admin', nama: 'Super Admin HSE', role: 'Admin', area: 'All Smelters', idKaryawan: 'admin' });
       showToast("Selamat datang, Super Admin!");
@@ -246,9 +261,7 @@ export default function App() {
       return;
     }
 
-    // Skenario 2: Cari data asli di Firestore cloud
     const foundUser = personnel.find(p => p.idKaryawan && p.idKaryawan.trim() === username && p.password && p.password.trim() === password);
-
     if (foundUser) {
       setCurrentUser(foundUser);
       showToast(`Selamat datang, ${foundUser.nama}!`);
@@ -277,14 +290,14 @@ export default function App() {
   const handleAddArea = () => {
     if(!newArea.trim()) return;
     const formattedArea = newArea.trim().replace(/\b\w/g, l => l.toUpperCase());
-    if(masterData.areas.includes(formattedArea)) return showToast("Nama Smelter sudah terdaftar!", "error");
-    saveMasterData({ ...masterData, areas: [...masterData.areas, formattedArea] });
+    if(safeAreas.includes(formattedArea)) return showToast("Nama Smelter sudah terdaftar!", "error");
+    saveMasterData({ ...masterData, areas: [...safeAreas, formattedArea] });
     setNewArea('');
   };
 
   const handleDeleteArea = (areaTarget) => {
     if(confirm(`Hapus ${areaTarget} dari master sistem? Karyawan di area ini tidak akan terhapus, tapi ditandai.`)) {
-      saveMasterData({ ...masterData, areas: masterData.areas.filter(a => a !== areaTarget) });
+      saveMasterData({ ...masterData, areas: safeAreas.filter(a => a !== areaTarget) });
     }
   };
 
@@ -331,7 +344,7 @@ export default function App() {
     try {
       const newId = Date.now().toString() + Math.random().toString(36).substr(2, 5);
       await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', newId), { ...newEmp, id: newId });
-      setNewEmp({ nama: '', area: masterData.areas[0], role: masterData.roles[0].id, idKaryawan: '', password: '' });
+      setNewEmp({ nama: '', area: safeAreas[0], role: safeRoles[0].id, idKaryawan: '', password: '' });
       showToast("Karyawan baru berhasil ditambahkan!");
     } catch (error) {
       showToast("Gagal menyimpan karyawan: " + error.message, "error");
@@ -372,8 +385,8 @@ export default function App() {
       if (parts.length < 1) return;
 
       const namaPaste = parts[0].toLowerCase();
-      if (!counts[namaPaste]) counts[counts] = 0;
-      counts[namaPaste] = (counts[namaPaste] || 0) + 1; 
+      if (!counts[namaPaste]) counts[namaPaste] = 0;
+      counts[namaPaste] += 1; 
       lineTotal++;
     });
 
@@ -421,6 +434,16 @@ export default function App() {
   // =====================================================
   // ENGINE LOGIKA RUMUS MATEMATIKA KPI
   // =====================================================
+  const getAccumulatedData = (empId, role) => {
+    const empData = weeklyData[empId] || {};
+    const total = {};
+    getActiveCategories(role).forEach(c => total[c.key] = 0);
+    Object.values(empData).forEach(weekData => {
+      getActiveCategories(role).forEach(c => { total[c.key] += (weekData[c.key] || 0); });
+    });
+    return total;
+  };
+
   const calculateScore = (acc, um, roleId) => {
     const cats = getActiveCategories(roleId);
     const targetedCats = cats.filter(c => c.isTargeted);
@@ -508,7 +531,7 @@ export default function App() {
       finalRank.sort((a, b) => b.averageScore - a.averageScore);
 
       const areaBest = {};
-      masterData.areas.forEach(area => {
+      safeAreas.forEach(area => {
         const filteredArea = finalRank.filter(p => p.area === area);
         areaBest[area] = filteredArea[0] || null; 
       });
@@ -526,7 +549,15 @@ export default function App() {
 
   const getDefisitTarget = () => {
     let defisit = [];
-    personnel.filter(p => p.role === selectedRoleContext).forEach(p => {
+    
+    let targetPersonnel = personnel.filter(p => p.role === selectedRoleContext);
+    
+    // Karyawan biasa tidak bisa menghitung defisit orang lain
+    if (!isManager) {
+      targetPersonnel = targetPersonnel.filter(p => p.id === currentUser.id);
+    }
+
+    targetPersonnel.forEach(p => {
       const acc = getAccumulatedData(p.id, p.role);
       getActiveCategories(p.role).filter(c => c.isTargeted).forEach(c => {
         const tercapai = acc[c.key] || 0;
@@ -538,36 +569,60 @@ export default function App() {
     return defisit.sort((a, b) => b.kurang - a.kurang);
   };
 
+  const exportToExcel = (area, personnelList) => {
+    const cats = getActiveCategories(selectedRoleContext);
+    let csvContent = "Area,Nama,";
+    cats.forEach(c => csvContent += `"${c.label}",`);
+    csvContent += "Kepatuhan,Pelanggaran,Skor Awal,Tambahan Poin,Penalti Kepatuhan,Skor Akhir,Nilai,Keterangan\n";
+
+    personnelList.forEach(p => {
+      const acc = getAccumulatedData(p.id, p.role);
+      const um = monthlyData[p.id] || { kepatuhan: 75, pelanggaran: 0, keterangan: '' };
+      const calc = calculateScore(acc, um, p.role);
+
+      let row = `"${p.area}","${p.nama}",`;
+      cats.forEach(c => row += `"${acc[c.key]||0}",`);
+      row += `"${um.kepatuhan||75}","${um.pelanggaran||0}","${calc.sAwal.toFixed(1)}","${calc.tPoin}","${calc.penalti}","${calc.sAkhir.toFixed(1)}","${calc.grade}","${um.keterangan||''}"\n`;
+      csvContent += row;
+    });
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `Laporan_KPI_${selectedRoleContext}_${area}_${selectedPeriod}.csv`;
+    link.click();
+  };
+
   // =====================================================
   // FILTERING DATA BERDASARKAN LEVEL AKSES LOGIN (RBAC)
   // =====================================================
   const getVisibleAreas = () => {
     if (!currentUser) return [];
-    if (currentUser.role === 'Admin') return masterData.areas;
-    // Foreman hanya melihat Smelter miliknya
-    if (currentUser.role === 'Foreman') return [currentUser.area];
+    if (currentUser.role === 'Admin') return safeAreas;
+    // Foreman dan WFSO melihat Smelter miliknya
+    if (currentUser.role === 'Foreman' || currentUser.role === 'WFSO') return [currentUser.area || ''];
     // Karyawan biasa melihat Smelter miliknya
-    return [currentUser.area];
+    return [currentUser.area || ''];
   };
 
   const getVisiblePersonnel = (area) => {
     if (!currentUser) return [];
     
-    // Ambil basis karyawan di smelter & jabatan aktif
     let list = personnel.filter(p => p.role === selectedRoleContext && p.area === area);
     
-    // Jika Karyawan biasa login, kunci tabel hanya untuk memunculkan namanya sendiri
-    if (currentUser.role !== 'Admin' && currentUser.role !== 'Foreman') {
+    // Jika Karyawan biasa, potong data orang lain. (Foreman, WFSO, dan Admin lolos dari if ini)
+    if (!isManager) {
       list = list.filter(p => p.id === currentUser.id);
     }
     return list;
   };
 
-  const filteredPersonnel = personnel.filter(p => p.role === selectedRoleContext);
-  const searchResult = personnel.filter(p => (p.nama || '').toLowerCase().includes(searchQuery.toLowerCase()));
+  const handleDashboardSearchChange = (area, val) => {
+    setDashboardSearch(prev => ({ ...prev, [area]: val }));
+  };
 
   // =====================================================
-  // RENDER JENDELA LOGIN CARD JIKA BELUM AUTENTIKASI
+  // RENDER JENDELA LOGIN
   // =====================================================
   if (!currentUser) {
     return (
@@ -615,8 +670,20 @@ export default function App() {
     );
   }
 
+  // Loading global setelah login jika data bulan berjalan belum selesai ditarik
+  if (!isDbReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100 text-emerald-700">
+        <div className="flex flex-col items-center">
+          <svg className="animate-spin h-10 w-10 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+          <span className="font-semibold tracking-wider">Mempersiapkan Data Dashboard...</span>
+        </div>
+      </div>
+    );
+  }
+
   // =====================================================
-  // RENDER UTAMA DASHBOARD CORE SYSTEM (AUTHENTICATED)
+  // RENDER DASHBOARD CORE SYSTEM (AUTHENTICATED)
   // =====================================================
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800 font-sans pb-12 relative overflow-hidden">
@@ -634,14 +701,14 @@ export default function App() {
             <CheckCircle size={36} className="text-emerald-300" />
             <div>
               <h1 className="text-2xl font-bold tracking-wide">KPI HSE BUFN 2</h1>
-              <p className="text-emerald-200 text-xs mt-0.5">User: <b>{currentUser.nama}</b> ({currentUser.role})</p>
+              <p className="text-emerald-200 text-xs mt-0.5">User: <b className="uppercase">{currentUser.nama}</b> ({currentUser.role})</p>
             </div>
           </div>
           
           <div className="flex items-center gap-3">
             <div className="bg-emerald-900 px-4 py-2 rounded-lg border border-emerald-700 flex items-center gap-2 shadow-inner">
               <Calendar size={16} className="text-emerald-300"/>
-              {/* DROPDOWN KALENDER KUSTOM */}
+              {/* KALENDER KUSTOM ELEGAN */}
               <select className="bg-transparent text-white font-bold text-sm focus:outline-none cursor-pointer outline-none" 
                 value={selectedPeriod} onChange={(e) => setSelectedPeriod(e.target.value)}>
                 {generatePeriodList().map(p => <option key={p.id} value={p.id} className="text-slate-800">{p.label}</option>)}
@@ -655,7 +722,7 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto mt-6 px-4">
-        {/* TAB NAVIGATION DENGAN PROTEKSI HAK AKSES */}
+        {/* NAVIGASI MENU (BERDASARKAN AKSES JABATAN) */}
         <div className="flex flex-wrap space-x-1 border-b border-slate-300 mb-6">
           <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-3 font-semibold rounded-t-lg transition-colors flex items-center gap-2 ${activeTab === 'dashboard' ? 'bg-white text-emerald-700 border-t-2 border-emerald-600 border-x border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}><LayoutDashboard size={18}/> Dashboard</button>
           
@@ -673,11 +740,11 @@ export default function App() {
           )}
         </div>
 
-        {/* ROLE FILTER JABATAN */}
-        {['input', 'laporan', 'dashboard'].includes(activeTab) && (currentUser.role === 'Admin' || currentUser.role === 'Foreman') && (
+        {/* ROLE FILTER (HANYA MANAGER YG BISA GANTI TAB JABATAN) */}
+        {['input', 'laporan', 'dashboard'].includes(activeTab) && isManager && (
           <div className="mb-4 bg-white p-4 rounded-lg shadow-sm flex flex-wrap items-center gap-3 border border-slate-200">
             <span className="font-bold text-slate-700 mr-2">Tampilkan Data Untuk:</span>
-            {masterData.roles.filter(r => r.id === 'SO' || r.id === 'WFSO').map(r => (
+            {safeRoles.filter(r => r.id === 'SO' || r.id === 'WFSO').map(r => (
               <button key={r.id} onClick={() => setSelectedRoleContext(r.id)} 
                 className={`px-4 py-1.5 rounded font-bold transition-all ${selectedRoleContext === r.id ? 'bg-emerald-100 text-emerald-800 shadow border border-emerald-200' : 'text-slate-500 hover:bg-slate-100'}`}>
                 {r.name}
@@ -689,27 +756,22 @@ export default function App() {
         {/* --- TAB DASHBOARD --- */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
-            {/* Hanya Admin & Foreman yang bisa melihat Tab Juara Tahunan */}
-            {(currentUser.role === 'Admin' || currentUser.role === 'Foreman') && (
+            
+            {isManager && (
               <div className="flex gap-2 bg-slate-200 p-1.5 rounded-lg w-fit shadow-inner">
                 <button onClick={() => setDashboardMode('bulanan')} className={`px-4 py-2 font-bold text-xs rounded-md transition-all ${dashboardMode === 'bulanan' ? 'bg-white text-emerald-800 shadow' : 'text-slate-600'}`}>Pencapaian Bulanan (Defisit)</button>
                 <button onClick={() => setDashboardMode('tahunan')} className={`px-4 py-2 font-bold text-xs rounded-md transition-all ${dashboardMode === 'tahunan' ? 'bg-white text-emerald-800 shadow' : 'text-slate-600'}`}>Rekap Tahunan (Karyawan Terbaik)</button>
               </div>
             )}
 
-            {/* A. VIEW MODE BULANAN (DENGAN FILTER LEVEL AKSES AREA) */}
+            {/* A. VIEW MODE BULANAN */}
             {dashboardMode === 'bulanan' && (
               <div className="grid grid-cols-1 gap-6">
                 {getVisibleAreas().map(area => {
                   const defisitArea = getDefisitTarget().filter(d => d.area === area);
                   
-                  // Jika yang login adalah Karyawan biasa, hanya tampilkan defisit namanya sendiri
-                  const defisitFilteredByRole = currentUser.role !== 'Admin' && currentUser.role !== 'Foreman' 
-                    ? defisitArea.filter(d => d.nama === currentUser.nama)
-                    : defisitArea;
-
                   const searchKey = dashboardSearch[area] || '';
-                  const finalDefisitList = defisitFilteredByRole.filter(d => d.nama.toLowerCase().includes(searchKey.toLowerCase()));
+                  const finalDefisitList = defisitArea.filter(d => d.nama.toLowerCase().includes(searchKey.toLowerCase()));
 
                   return (
                     <div key={area} className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
@@ -717,7 +779,7 @@ export default function App() {
                         <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
                           <TrendingDown className="text-red-500" size={20} /> {area}
                         </h3>
-                        {(currentUser.role === 'Admin' || currentUser.role === 'Foreman') && (
+                        {isManager && (
                           <div className="relative">
                             <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
                             <input type="text" placeholder={`Cari nama di ${area}...`} className="pl-8 pr-2 py-1 border rounded text-xs w-52 focus:ring-emerald-500"
@@ -751,13 +813,13 @@ export default function App() {
             )}
 
             {/* B. VIEW MODE TAHUNAN */}
-            {dashboardMode === 'tahunan' && (currentUser.role === 'Admin' || currentUser.role === 'Foreman') && (
+            {dashboardMode === 'tahunan' && isManager && (
               <div className="space-y-6">
                 {loadingYearly ? (
                   <div className="p-12 text-center bg-white rounded-xl border font-semibold text-slate-500">Mengkalkulasi Rata-rata Nilai 12 Bulan...</div>
                 ) : (
                   <>
-                    {/* Hanya tampilkan Juara Umum Global jika yang login adalah Admin */}
+                    {/* JUARA UMUM GLOBAL (HANYA ADMIN) */}
                     {yearlyRecapData.globalBest && currentUser.role === 'Admin' && (
                       <div className="bg-gradient-to-r from-amber-500 to-yellow-600 p-6 rounded-xl shadow-lg text-white flex flex-col md:flex-row items-center justify-between gap-4">
                         <div className="flex items-center gap-4">
@@ -765,7 +827,7 @@ export default function App() {
                           <div>
                             <span className="bg-amber-800 text-white text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest">KARYAWAN TERBAIK TAHUNAN (GLOBAL)</span>
                             <h3 className="text-2xl font-black mt-1 tracking-wide shadow-sm">{yearlyRecapData.globalBest.nama}</h3>
-                            <p className="text-amber-100 text-xs mt-0.5">Penempatan: <b>{yearlyRecapData.globalBest.area}</b> | Jabatan: <b>{masterData.roles.find(r=>r.id===selectedRoleContext)?.name}</b></p>
+                            <p className="text-amber-100 text-xs mt-0.5">Penempatan: <b>{yearlyRecapData.globalBest.area}</b> | Jabatan: <b>{safeRoles.find(r=>r.id===selectedRoleContext)?.name}</b></p>
                           </div>
                         </div>
                         <div className="bg-white/10 px-5 py-3 rounded-xl border border-white/20 text-center shadow-inner">
@@ -775,6 +837,7 @@ export default function App() {
                       </div>
                     )}
 
+                    {/* JUARA PER-SMELTER (SESUAI AKSES AREA) */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       {getVisibleAreas().map(area => {
                         const winner = yearlyRecapData.areaBest[area];
@@ -804,7 +867,7 @@ export default function App() {
           </div>
         )}
 
-        {/* --- TAB DATABASE KARYAWAN (HANYA ADMIN) --- */}
+        {/* --- TAB DATABASE KARYAWAN UTAMA (HANYA ADMIN) --- */}
         {activeTab === 'database' && currentUser.role === 'Admin' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 lg:col-span-1 h-fit">
@@ -815,13 +878,13 @@ export default function App() {
                   <div>
                     <label className="block text-sm text-slate-600 mb-1">Smelter</label>
                     <select className="w-full border p-2 rounded focus:ring-emerald-500" value={newEmp.area} onChange={e => setNewEmp({...newEmp, area: e.target.value})}>
-                      {masterData.areas.map(a => <option key={a} value={a}>{a}</option>)}
+                      {safeAreas.map(a => <option key={a} value={a}>{a}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="block text-sm text-slate-600 mb-1">Jabatan / Role</label>
                     <select className="w-full border p-2 rounded focus:ring-emerald-500" value={newEmp.role} onChange={e => setNewEmp({...newEmp, role: e.target.value})}>
-                      {masterData.roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                      {safeRoles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                     </select>
                   </div>
                 </div>
@@ -847,14 +910,14 @@ export default function App() {
                       <tr><td colSpan="5" className="text-center p-10 text-slate-500 border border-dashed bg-slate-50">Karyawan tidak ditemukan.</td></tr>
                     ) : (
                       searchResult.map(p => {
-                        const isAreaUnknown = !masterData.areas.includes(p.area);
+                        const isAreaUnknown = !safeAreas.includes(p.area);
                         return (
                         <tr key={p.id} className={`border-b hover:bg-slate-50 ${isAreaUnknown ? 'bg-red-50' : ''}`}>
                           {editingId === p.id ? (
                             <>
                               <td className="p-2"><input type="text" className="border p-1 w-full text-sm rounded focus:ring-emerald-500" value={editFormData.nama} onChange={(e) => setEditFormData({...editFormData, nama: e.target.value})} /></td>
-                              <td className="p-2 text-center"><select className="border p-1 text-sm rounded focus:ring-emerald-500" value={editFormData.area} onChange={(e) => setEditFormData({...editFormData, area: e.target.value})}>{masterData.areas.map(a => <option key={a} value={a}>{a}</option>)}</select></td>
-                              <td className="p-2 text-center"><select className="border p-1 text-sm rounded focus:ring-emerald-500" value={editFormData.role} onChange={(e) => setEditFormData({...editFormData, role: e.target.value})}>{masterData.roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></td>
+                              <td className="p-2 text-center"><select className="border p-1 text-sm rounded focus:ring-emerald-500" value={editFormData.area} onChange={(e) => setEditFormData({...editFormData, area: e.target.value})}>{safeAreas.map(a => <option key={a} value={a}>{a}</option>)}</select></td>
+                              <td className="p-2 text-center"><select className="border p-1 text-sm rounded focus:ring-emerald-500" value={editFormData.role} onChange={(e) => setEditFormData({...editFormData, role: e.target.value})}>{safeRoles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></td>
                               <td className="p-2 flex flex-col gap-1">
                                 <input type="text" placeholder="Username" className="border p-1 text-xs rounded font-mono" value={editFormData.idKaryawan} onChange={(e) => setEditFormData({...editFormData, idKaryawan: e.target.value})} />
                                 <input type="text" placeholder="Password" className="border p-1 text-xs rounded" value={editFormData.password} onChange={(e) => setEditFormData({...editFormData, password: e.target.value})} />
@@ -867,7 +930,7 @@ export default function App() {
                               <td className="p-3 text-center font-bold text-slate-500">
                                 {p.area} {isAreaUnknown && <span className="text-red-500 text-xs block mt-1">(Perlu Diupdate)</span>}
                               </td>
-                              <td className="p-3 text-center"><span className="px-3 py-1 bg-slate-200 rounded-full text-xs font-bold">{masterData.roles.find(r=>r.id===p.role)?.name || p.role}</span></td>
+                              <td className="p-3 text-center"><span className="px-3 py-1 bg-slate-200 rounded-full text-xs font-bold">{safeRoles.find(r=>r.id===p.role)?.name || p.role}</span></td>
                               <td className="p-3 text-center text-xs font-mono text-slate-500">
                                  ID: <b className="text-slate-700">{p.idKaryawan || '-'}</b> <br/> PW: <span className="text-slate-700">{p.password || '-'}</span>
                               </td>
@@ -899,11 +962,11 @@ export default function App() {
                   <div className="bg-blue-50 border border-blue-200 text-blue-800 rounded p-3 text-xs mb-3">
                      💡 <b>Auto-Detect Global:</b> Cukup paste barisan <b>NAMA KARYAWAN</b> dari excel tanpa memisahkan SO atau WFSO. Aplikasi otomatis melacak jabatannya dan menghitung akumulasi frekuensinya.
                   </div>
-                  <textarea className="w-full border p-3 h-48 rounded text-sm font-mono focus:ring-emerald-500" placeholder="Paste data daftar NAMA saja dari Excel..." value={pasteText} onChange={(e) => setPasteText(e.target.value)}></textarea>
+                  <textarea className="w-full border p-3 h-48 rounded text-sm font-mono focus:ring-emerald-500" placeholder="Paste daftar NAMA saja dari Excel..." value={pasteText} onChange={(e) => setPasteText(e.target.value)}></textarea>
                   <button onClick={handleProcessPaste} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 mt-4 rounded shadow">Proses & Akumulasikan Data</button>
                 </div>
                 <div>
-                  <h2 className="font-bold text-lg mb-4">Preview Capaian Semelter ({masterData.roles.find(r=>r.id===selectedRoleContext)?.name})</h2>
+                  <h2 className="font-bold text-lg mb-4">Preview Capaian Semelter ({safeRoles.find(r=>r.id===selectedRoleContext)?.name})</h2>
                   {getVisibleAreas().map(area => {
                     const areaPersonnel = getVisiblePersonnel(area);
                     if (areaPersonnel.length === 0) return null;
@@ -934,7 +997,7 @@ export default function App() {
           </div>
         )}
 
-        {/* --- TAB REKAP LAPORAN FINAL (DENGAN SECURITY FILTER TINGGI) --- */}
+        {/* --- TAB REKAP LAPORAN FINAL --- */}
         {activeTab === 'laporan' && (
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
              <div className="mb-6 pb-4 border-b border-slate-200"><h2 className="font-bold text-2xl">Laporan Rekap Keseluruhan KPI</h2></div>
@@ -968,7 +1031,6 @@ export default function App() {
                               <td className="p-3 text-center font-bold text-slate-500 bg-slate-50/50">{p.area}</td><td className="p-3 font-bold text-slate-700">{p.nama}</td>
                               {getActiveCategories(selectedRoleContext).map(c => <td key={c.key} className="p-3 text-center border-l border-slate-200 font-medium">{acc[c.key]||0}</td>)}
                               
-                              {/* Opsi edit bulanan hanya terbuka lebar untuk Admin saja */}
                               <td className="p-2 text-center border-l border-slate-200 bg-emerald-50/30">
                                 <select disabled={currentUser.role !== 'Admin'} className="border p-1.5 rounded w-16 focus:ring-emerald-500 text-center bg-white" value={um.kepatuhan || 75} onChange={e=>handleMonthlyInput(p.id, 'kepatuhan', e.target.value)}><option value="25">25</option><option value="50">50</option><option value="75">75</option></select>
                               </td>
@@ -1010,7 +1072,7 @@ export default function App() {
                   <button onClick={handleAddArea} className="bg-emerald-600 hover:bg-emerald-500 px-4 py-2 rounded text-white font-bold text-sm"><Plus size={16}/></button>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {masterData.areas.map(area => (
+                  {safeAreas.map(area => (
                     <div key={area} className="bg-slate-700 px-3 py-1.5 rounded flex items-center gap-2 text-sm font-bold text-emerald-300">
                       {area} <button onClick={() => handleDeleteArea(area)} className="text-red-400 hover:text-red-300"><Trash2 size={14}/></button>
                     </div>
@@ -1021,7 +1083,7 @@ export default function App() {
               <div className="bg-slate-900 p-5 rounded-lg border border-slate-700 lg:col-span-2">
                 <h3 className="font-bold text-white mb-4">Manajemen Indikator & Target Utama</h3>
                 <div className="grid grid-cols-1 gap-6 mb-8">
-                  {masterData.roles.filter(r => r.id === 'SO' || r.id === 'WFSO').map(r => (
+                  {safeRoles.filter(r => r.id === 'SO' || r.id === 'WFSO').map(r => (
                     <div key={r.id} className="bg-slate-800 p-4 rounded border border-slate-600">
                       <h4 className="font-bold text-emerald-400 mb-4 border-b border-slate-700 pb-2">
                         <span>Indikator {r.name}</span>
@@ -1056,7 +1118,7 @@ export default function App() {
                   <div className="flex flex-wrap gap-3 items-end">
                     <div className="flex-1 min-w-[150px]"><label className="block text-xs text-slate-400 mb-1">Pilih Jabatan</label>
                       <select className="w-full bg-slate-700 border border-slate-600 rounded p-2 text-white text-sm" value={newCatRole} onChange={e=>setNewCatRole(e.target.value)}>
-                        {masterData.roles.filter(r => r.id === 'SO' || r.id === 'WFSO').map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                        {safeRoles.filter(r => r.id === 'SO' || r.id === 'WFSO').map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                       </select>
                     </div>
                     <div className="flex-1 min-w-[150px]"><label className="block text-xs text-slate-400 mb-1">Nama Indikator</label><input type="text" placeholder="Misal: Patroli" className="w-full bg-slate-700 border border-slate-600 rounded p-2 text-white text-sm" value={newCatLabel} onChange={e=>setNewCatLabel(e.target.value)} /></div>
@@ -1077,7 +1139,7 @@ export default function App() {
         )}
       </main>
 
-      {/* COMPONENT MODAL CUSTOM (NOTIFTYPO TYPO NAMA EXCEL) */}
+      {/* COMPONENT MODAL CUSTOM (ERROR TYPO EXCEL) */}
       {pasteErrors.length > 0 && (
         <div className="fixed inset-0 bg-slate-900/75 flex items-center justify-center z-[110] p-4 transition-opacity">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
@@ -1107,7 +1169,7 @@ export default function App() {
             <div className="flex flex-col items-center text-center">
               <div className="bg-red-100 p-3 rounded-full mb-4"><AlertTriangle size={32} className="text-red-600" /></div>
               <h3 className="text-xl font-bold text-slate-800 mb-2">Hapus Karyawan?</h3>
-              <p className="text-slate-600 mb-6 text-sm">Apakah Anda yakin ingin menghapus <b>{deleteModal.nama}</b>?</p>
+              <p className="text-slate-600 mb-6 text-sm">Apakah Anda yakin ingin menghapus <b>{deleteModal.nama}</b>? Data penilaian yang tersimpan pada bulan-bulan sebelumnya tidak akan hilang, namun profil karyawan ini akan dinonaktifkan dari daftar global.</p>
               <div className="flex gap-3 w-full">
                 <button onClick={() => setDeleteModal({ show: false, id: null, nama: '' })} className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 transition-colors font-bold rounded-lg text-slate-700 text-sm">Batal</button>
                 <button onClick={confirmDelete} className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 transition-colors text-white font-bold rounded-lg text-sm shadow-md">Ya, Hapus</button>
