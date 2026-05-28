@@ -591,8 +591,8 @@ export default function App() {
               <div className="bg-emerald-500/10 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-emerald-500/20">
                 <CheckCircle size={48} className="text-emerald-500" />
               </div>
-              <h2 className="text-2xl font-black text-white tracking-tighter uppercase">KPI HSE Portal</h2>
-              <p className="text-slate-500 text-sm mt-1">Sistem Evaluasi BUFN 2</p>
+              <h2 className="text-2xl font-black text-white tracking-tighter uppercase">Portal KPI HSE BUFN 2</h2>
+              <p className="text-slate-500 text-sm mt-1">Sistem Evaluasi</p>
             </div>
             
             <form onSubmit={handleLoginSubmit} className="space-y-5">
@@ -600,7 +600,7 @@ export default function App() {
                 <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-wider">ID Karyawan</label>
                 <div className="relative mt-1">
                   <User size={18} className="absolute left-4 top-3.5 text-slate-500" />
-                  <input type="text" placeholder="Contoh: SO-001" className="w-full bg-slate-800 border border-slate-700 p-3.5 pl-12 rounded-2xl text-white outline-none focus:border-emerald-500 transition-all font-mono text-sm"
+                  <input type="text" placeholder="Contoh: 822" className="w-full bg-slate-800 border border-slate-700 p-3.5 pl-12 rounded-2xl text-white outline-none focus:border-emerald-500 transition-all font-mono text-sm"
                     value={loginForm.idKaryawan} onChange={e => setLoginForm({...loginForm, idKaryawan: e.target.value})} />
                 </div>
               </div>
