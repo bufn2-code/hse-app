@@ -43,7 +43,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 
 // =====================================================
-// MASTER DATA (INDIKATOR & TARGET SUDAH DISESUAIKAN)
+// MASTER DATA DEFAULT
 // =====================================================
 const defaultSettings = {
   areas: ['Smelter C', 'Smelter E', 'Smelter F'], 
@@ -78,6 +78,20 @@ export default function App() {
     return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
   };
 
+  // FUNGSI GENERATE KALENDER DINAMIS YANG ELEGAN
+  const generatePeriodList = () => {
+    const periods = [];
+    const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    const currentYear = new Date().getFullYear();
+    // Menghasilkan daftar dari 1 tahun lalu hingga 2 tahun ke depan
+    for(let y = currentYear - 1; y <= currentYear + 2; y++) {
+      for(let m = 0; m < 12; m++) {
+        periods.push({ id: `${y}-${String(m+1).padStart(2, '0')}`, label: `${months[m]} ${y}` });
+      }
+    }
+    return periods;
+  };
+
   const [activeTab, setActiveTab] = useState('dashboard');
   const [dashboardMode, setDashboardMode] = useState('bulanan'); 
   const [selectedPeriod, setSelectedPeriod] = useState(getCurrentMonth());
@@ -108,6 +122,9 @@ export default function App() {
   const [editFormData, setEditFormData] = useState({ nama: '', area: '', role: '' });
   const [deleteModal, setDeleteModal] = useState({ show: false, id: null, nama: '' });
   
+  // STATE BARU: Modal untuk Error Paste (Nama Tidak Ditemukan)
+  const [pasteErrors, setPasteErrors] = useState([]);
+  
   const [newArea, setNewArea] = useState('');
   const [newCatLabel, setNewCatLabel] = useState('');
   const [newCatTarget, setNewCatTarget] = useState(0);
@@ -119,6 +136,19 @@ export default function App() {
 
   const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'bufn2-kpi-app';
   const getActiveCategories = (roleId) => masterData.categories[roleId] || [];
+
+  // MENDAPATKAN SELURUH INDIKATOR GABUNGAN (Untuk Menu Paste)
+  const getAllUniqueCategories = () => {
+    const allCats = [];
+    masterData.roles.forEach(r => {
+      masterData.categories[r.id]?.forEach(c => {
+        if (!allCats.find(existing => existing.key === c.key)) {
+          allCats.push(c);
+        }
+      });
+    });
+    return allCats;
+  };
 
   const weeks = [
     { id: 'w1', label: 'Minggu 1' }, { id: 'w2', label: 'Minggu 2' },
@@ -181,7 +211,6 @@ export default function App() {
     return () => { unsubs.forEach(u => u()); };
   }, [user, selectedPeriod]);
 
-  // BUG FIX: Karyawan Terbaik kini akan diproses ulang otomatis setiap kali filter role (SO/WFSO) ditekan.
   useEffect(() => {
     if (activeTab === 'dashboard' && dashboardMode === 'tahunan' && personnel.length > 0) {
       calculateYearlyBest();
@@ -281,7 +310,7 @@ export default function App() {
     }
   };
 
-  // --- REKAP DATA PASTE (MENGHITUNG FREKUENSI KEMUNCULAN NAMA) ---
+  // --- REKAP DATA PASTE (GABUNGAN TANPA FILTER JABATAN) ---
   const handleProcessPaste = async () => {
     if (!pasteText.trim()) return showToast('Teks data paste kosong!', 'error');
     const lines = pasteText.split('\n');
@@ -304,7 +333,9 @@ export default function App() {
     let notFoundNames = [];
 
     Object.keys(counts).forEach(namaKey => {
-      const emp = personnel.find(p => p.nama.toLowerCase() === namaKey && p.role === selectedRoleContext);
+      // PENCARIAN GLOBAL: Mengabaikan selectedRoleContext, cari nama di seluruh database
+      const emp = personnel.find(p => p.nama.toLowerCase() === namaKey);
+      
       if (emp) {
         if (!updates[emp.id]) updates[emp.id] = {};
         if (!updates[emp.id][selectedWeek]) updates[emp.id][selectedWeek] = {};
@@ -313,6 +344,7 @@ export default function App() {
         updates[emp.id][selectedWeek][selectedIndicator] = oldVal + counts[namaKey];
         matchedCount++;
       } else {
+        // Jika nama tidak ada di database, masukkan ke daftar error
         notFoundNames.push(namaKey);
       }
     });
@@ -322,9 +354,11 @@ export default function App() {
         await setDoc(doc(db, 'artifacts', getAppId(), `weekly_${selectedPeriod}`, empId), updates[empId], { merge: true });
       }
       setPasteText('');
-      showToast(`Berhasil merekap ${lineTotal} data untuk ${matchedCount} karyawan!`);
+      showToast(`Berhasil merekap ${lineTotal} baris data ke ${matchedCount} karyawan!`);
+      
+      // Memicu Modal Error jika ada nama yang tertinggal/salah ketik
       if(notFoundNames.length > 0) {
-        setTimeout(() => showToast(`Ada ${Array.from(new Set(notFoundNames)).length} nama tidak terdaftar/salah jabatan.`, "error"), 3500);
+        setPasteErrors(Array.from(new Set(notFoundNames)));
       }
     } catch (error) {
       showToast("Gagal memproses rekap data: " + error.message, "error");
@@ -340,7 +374,7 @@ export default function App() {
   };
 
   // =====================================================
-  // ENGINE LOGIKA RUMUS MATEMATIKA KPI (UPDATE AKURASI 100%)
+  // ENGINE LOGIKA RUMUS MATEMATIKA KPI
   // =====================================================
   const getAccumulatedData = (empId, role) => {
     const empData = weeklyData[empId] || {};
@@ -354,39 +388,30 @@ export default function App() {
 
   const calculateScore = (acc, um, roleId) => {
     const cats = getActiveCategories(roleId);
-    
-    // Pemisahan Kategori (Target Utama & Extra)
     const targetedCats = cats.filter(c => c.isTargeted);
     const untargetedCats = cats.filter(c => !c.isTargeted);
     
-    // TAHAP 1 & 2: RUMUS SKOR AWAL (PRORATA)
     const weightPerCat = targetedCats.length > 0 ? (100 / targetedCats.length) : 0; 
     let sAwal = targetedCats.length > 0 ? 100 : 0;
     
     targetedCats.forEach(c => {
       const val = acc[c.key] || 0;
-      // Rem Pengaman: Jika val >= target, sAwal tetap utuh (tidak minus/over)
       if (val < c.target) {
         const shortfall = c.target - val;
         const percentageFailed = shortfall / c.target;
         sAwal -= (percentageFailed * weightPerCat);
       }
     });
-    if(sAwal < 0) sAwal = 0; // Proteksi nilai ekstrem
+    if(sAwal < 0) sAwal = 0; 
 
-    // RUMUS TAMBAHAN POIN
-    let tPoin = Number(um.kepatuhan) || 75; // Kepatuhan digabungkan di sini
-    untargetedCats.forEach(c => { tPoin += (acc[c.key] || 0) }); // Ditambah Nilai Extra (Safety Inspection & Pelatihan)
+    let tPoin = Number(um.kepatuhan) || 75; 
+    untargetedCats.forEach(c => { tPoin += (acc[c.key] || 0) }); 
 
-    // RUMUS PENALTI KEPATUHAN
     const penalti = (Number(um.pelanggaran) || 0) * -5;
-
-    // RUMUS SKOR AKHIR
     const sAkhir = sAwal + tPoin + penalti;
     
-    // RUMUS NILAI KASTA (GRADE)
     let grade = 'D';
-    const isAwalSempurna = Math.abs(sAwal - 100) < 0.1; // Mengatasi isu float precision pada Javascript
+    const isAwalSempurna = Math.abs(sAwal - 100) < 0.1; 
     const ket = (um.keterangan || "").toLowerCase();
     const hasIjin = ket.includes("ijin") || ket.includes("cuti");
 
@@ -395,10 +420,7 @@ export default function App() {
       else if (sAkhir >= 141) grade = 'B';
       else if (sAkhir >= 100) grade = 'C';
     } else {
-      // Jalur Penyelamat Absen
-      if (hasIjin) {
-        grade = 'C';
-      }
+      if (hasIjin) grade = 'C';
     }
 
     return { sAwal, tPoin, penalti, sAkhir, grade };
@@ -418,7 +440,6 @@ export default function App() {
     try {
       for (let m = 1; m <= 12; m++) {
         const periodKey = `${year}-${String(m).padStart(2, '0')}`;
-        
         const weeklySnap = await getDocs(collection(db, 'artifacts', appId, `weekly_${periodKey}`));
         const monthlySnap = await getDocs(collection(db, 'artifacts', appId, `monthly_${periodKey}`));
         
@@ -427,7 +448,6 @@ export default function App() {
         const mData = {};
         monthlySnap.forEach(doc => { mData[doc.id] = doc.data(); });
 
-        // Filter ketat memastikan HANYA role yang sedang diaktifkan yang dikalkulasi
         personnel.filter(p => p.role === selectedRoleContext).forEach(p => {
           if (!yearlyScores[p.id]) {
             yearlyScores[p.id] = { id: p.id, nama: p.nama, area: p.area, totalScore: 0, monthsActive: 0 };
@@ -445,11 +465,10 @@ export default function App() {
           const calc = calculateScore(totalWeeklyAcc, empMonthly, p.role);
           
           yearlyScores[p.id].totalScore += calc.sAkhir;
-          yearlyScores[p.id].monthsActive += 1; // Menghitung bulan kehadiran
+          yearlyScores[p.id].monthsActive += 1; 
         });
       }
 
-      // Hitung rata-rata
       const finalRank = Object.values(yearlyScores).map(p => ({
         ...p,
         averageScore: p.monthsActive > 0 ? (p.totalScore / p.monthsActive) : 0
@@ -544,6 +563,7 @@ export default function App() {
         </div>
       )}
 
+      {/* HEADER & KALENDER DINAMIS */}
       <header className="bg-emerald-800 text-white p-5 shadow-lg relative z-10">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center space-x-3">
@@ -557,8 +577,10 @@ export default function App() {
           <div className="flex items-center gap-3">
             <div className="bg-emerald-900 px-4 py-2 rounded-lg border border-emerald-700 flex items-center gap-2 shadow-inner">
               <Calendar size={16} className="text-emerald-300"/>
-              <input type="month" className="bg-transparent text-white font-bold text-sm focus:outline-none cursor-pointer" 
-                value={selectedPeriod} onChange={(e) => setSelectedPeriod(e.target.value)} />
+              <select className="bg-transparent text-white font-bold text-sm focus:outline-none cursor-pointer appearance-none pr-4 outline-none" 
+                value={selectedPeriod} onChange={(e) => setSelectedPeriod(e.target.value)}>
+                {generatePeriodList().map(p => <option key={p.id} value={p.id} className="text-slate-800">{p.label}</option>)}
+              </select>
             </div>
             <div className="bg-emerald-900 px-4 py-2 rounded-lg border border-emerald-700 text-xs text-green-400 font-bold shadow-inner">ONLINE</div>
           </div>
@@ -760,21 +782,35 @@ export default function App() {
           </div>
         )}
 
-        {/* --- TAB INPUT NILAI KINERJA --- */}
+        {/* --- TAB INPUT NILAI KINERJA (UNIFIED AUTO DETECT) --- */}
         {activeTab === 'input' && (
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="bg-slate-50 p-6 rounded-lg border h-fit">
-                  <h2 className="font-bold text-lg mb-4 border-b pb-2">Paste Data Excel</h2>
+                  <h2 className="font-bold text-lg mb-4 border-b pb-2">Paste Data Excel Gabungan</h2>
                   <div className="grid grid-cols-2 gap-4 mb-4">
                     <select className="border p-2 w-full rounded focus:ring-emerald-500" value={selectedWeek} onChange={(e) => setSelectedWeek(e.target.value)}>{weeks.map(w => <option key={w.id} value={w.id}>{w.label}</option>)}</select>
-                    <select className="border p-2 w-full rounded focus:ring-emerald-500" value={selectedIndicator} onChange={(e) => setSelectedIndicator(e.target.value)}>{getActiveCategories(selectedRoleContext).map(c => <option key={c.key} value={c.key}>{c.label}</option>)}</select>
+                    
+                    {/* DROPDOWN INDIKATOR MENAMPILKAN SEMUA INDIKATOR GABUNGAN SO & WFSO */}
+                    <select className="border p-2 w-full rounded focus:ring-emerald-500" value={selectedIndicator} onChange={(e) => setSelectedIndicator(e.target.value)}>
+                      {getAllUniqueCategories().map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
+                    </select>
                   </div>
-                  <textarea className="w-full border p-3 h-48 rounded text-sm font-mono focus:ring-emerald-500" placeholder="Paste data kolom NAMA saja, atau dengan AREA..." value={pasteText} onChange={(e) => setPasteText(e.target.value)}></textarea>
-                  <button onClick={handleProcessPaste} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 mt-4 rounded shadow">Proses & Akumulasikan</button>
+                  <div className="bg-blue-50 border border-blue-200 text-blue-800 rounded p-3 text-xs mb-3">
+                     💡 <b>Auto-Detect:</b> Paste kolom <b>NAMA</b> dari excel (tanpa memisahkan SO / WFSO). Sistem akan melacak seluruh database dan mengakumulasi poin secara otomatis!
+                  </div>
+                  <textarea className="w-full border p-3 h-48 rounded text-sm font-mono focus:ring-emerald-500" placeholder="Paste data NAMA di sini..." value={pasteText} onChange={(e) => setPasteText(e.target.value)}></textarea>
+                  <button onClick={handleProcessPaste} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 mt-4 rounded shadow">Proses & Akumulasikan Data</button>
                 </div>
                 <div>
-                  <h2 className="font-bold text-lg mb-4">Preview ({masterData.roles.find(r=>r.id===selectedRoleContext)?.name})</h2>
+                  <h2 className="font-bold text-lg mb-4">Preview Capaian ({masterData.roles.find(r=>r.id===selectedRoleContext)?.name})</h2>
+                  
+                  {getActiveAreasForView(filteredPersonnel).length === 0 && (
+                     <div className="text-center p-10 bg-slate-50 rounded-lg border border-dashed border-slate-300 text-slate-500">
+                        Belum ada karyawan terdaftar untuk jabatan ini.
+                     </div>
+                  )}
+
                   {getActiveAreasForView(filteredPersonnel).map(area => {
                     const isUnknown = area.includes('Tidak Dikenal');
                     const areaPersonnel = filteredPersonnel.filter(p => isUnknown ? !masterData.areas.includes(p.area) : p.area === area);
@@ -791,7 +827,9 @@ export default function App() {
                                 <tr key={p.id} className="border-b last:border-b-0 hover:bg-slate-50">
                                   <td className="p-2 font-medium">{p.nama}</td>
                                   {getActiveCategories(selectedRoleContext).map(c => (
-                                    <td key={c.key} className="p-2 text-center text-slate-600 font-bold">{wData[c.key] !== undefined ? wData[c.key] : 0}</td>
+                                    <td key={c.key} className="p-2 text-center text-slate-600 font-bold">
+                                      {wData[c.key] !== undefined ? wData[c.key] : 0}
+                                    </td>
                                   ))}
                                 </tr>
                               )
@@ -810,6 +848,13 @@ export default function App() {
         {activeTab === 'laporan' && (
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
              <div className="mb-6 pb-4 border-b border-slate-200"><h2 className="font-bold text-2xl">Laporan KPI - {selectedPeriod}</h2></div>
+             
+             {getActiveAreasForView(filteredPersonnel).length === 0 && (
+                <div className="text-center p-10 bg-slate-50 rounded-lg border border-dashed border-slate-300 text-slate-500 font-bold">
+                   Belum ada karyawan untuk ditampilkan pada periode ini.
+                </div>
+             )}
+
              {getActiveAreasForView(filteredPersonnel).map(area => {
                 const isUnknown = area.includes('Tidak Dikenal');
                 const areaPersonnel = filteredPersonnel.filter(p => isUnknown ? !masterData.areas.includes(p.area) : p.area === area);
@@ -832,6 +877,7 @@ export default function App() {
                       <tbody>
                         {areaPersonnel.map(p => {
                           const acc = getAccumulatedData(p.id, p.role);
+                          // Default kepatuhan adalah 75 jika belum diisi bulanan
                           const um = monthlyData[p.id] || { kepatuhan: 75, pelanggaran: 0, keterangan: '' };
                           const calc = calculateScore(acc, um, p.role);
 
@@ -858,13 +904,15 @@ export default function App() {
           </div>
         )}
 
-        {/* --- TAB PENGATURAN --- */}
+        {/* --- TAB PENGATURAN (PUSAT KONTROL MASTER DATA) --- */}
         {activeTab === 'pengaturan' && (
           <div className="bg-slate-800 p-6 rounded-xl shadow-lg border border-slate-700 text-slate-200">
             <h2 className="font-bold text-2xl mb-2 text-white flex items-center gap-2"><Settings /> Pengaturan Sistem (Master Data)</h2>
             <p className="text-sm text-slate-400 mb-8 border-b border-slate-700 pb-4">Setiap perubahan di sini akan otomatis mengubah seluruh struktur tabel, form, dan rumus penilaian di aplikasi secara instan.</p>
             
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              
+              {/* KOLOM KIRI: MANAJEMEN SMELTER */}
               <div className="bg-slate-900 p-5 rounded-lg border border-slate-700 h-fit lg:col-span-1">
                 <h3 className="font-bold text-white mb-4 flex items-center gap-2">Manajemen Smelter / Area</h3>
                 <div className="flex gap-2 mb-4">
@@ -880,6 +928,7 @@ export default function App() {
                 </div>
               </div>
 
+              {/* KOLOM KANAN: MANAJEMEN INDIKATOR (KPI) */}
               <div className="bg-slate-900 p-5 rounded-lg border border-slate-700 lg:col-span-2">
                 <h3 className="font-bold text-white mb-4">Manajemen Indikator & Target Utama</h3>
                 <div className="grid grid-cols-1 gap-6 mb-8">
@@ -888,9 +937,14 @@ export default function App() {
                       <h4 className="font-bold text-emerald-400 mb-4 border-b border-slate-700 pb-2">
                         <span>Indikator {r.name}</span>
                       </h4>
+                      
                       <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm mb-4">
-                          <thead><tr className="text-slate-400 border-b border-slate-700"><th className="pb-2">Nama Indikator</th><th className="pb-2 text-center">Tipe Aturan</th><th className="pb-2 text-center">Target (Angka)</th><th className="pb-2 text-center">Aksi</th></tr></thead>
+                          <thead>
+                            <tr className="text-slate-400 border-b border-slate-700">
+                              <th className="pb-2">Nama Indikator</th><th className="pb-2 text-center">Tipe Aturan</th><th className="pb-2 text-center">Target (Angka)</th><th className="pb-2 text-center">Aksi</th>
+                            </tr>
+                          </thead>
                           <tbody>
                             {masterData.categories[r.id]?.map((cat, index) => (
                               <tr key={cat.key} className="border-b border-slate-700/50">
@@ -913,6 +967,7 @@ export default function App() {
                   ))}
                 </div>
 
+                {/* MEMBUAT INDIKATOR BARU SECARA DINAMIS */}
                 <div className="bg-slate-800 p-4 rounded border border-emerald-700/50 shadow-inner">
                   <h4 className="font-bold text-white mb-3 text-sm flex items-center gap-2"><Plus size={16} className="text-emerald-400"/> Tambah Indikator Lapangan Baru</h4>
                   <div className="flex flex-wrap gap-3 items-end">
@@ -939,14 +994,37 @@ export default function App() {
         )}
       </main>
 
-      {/* COMPONENT MODAL CUSTOM */}
+      {/* COMPONENT MODAL CUSTOM (ERROR TYPO EXCEL) */}
+      {pasteErrors.length > 0 && (
+        <div className="fixed inset-0 bg-slate-900/75 flex items-center justify-center z-[110] p-4 transition-opacity">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+            <div className="flex items-center gap-3 mb-4 text-red-600">
+              <AlertTriangle size={28} />
+              <h3 className="text-lg font-bold">Data Tidak Ditemukan!</h3>
+            </div>
+            <p className="text-sm text-slate-600 mb-4">
+              Beberapa nama dari data Excel Anda tidak ada di dalam Database Karyawan (salah ketik spasi/typo). Silakan perbaiki nama-nama berikut di Excel Anda:
+            </p>
+            <div className="bg-slate-100 p-3 rounded border border-slate-200 max-h-48 overflow-y-auto mb-6">
+              <ul className="list-disc pl-5 text-sm text-slate-700 font-mono">
+                {pasteErrors.map((name, i) => <li key={i}>{name}</li>)}
+              </ul>
+            </div>
+            <button onClick={() => setPasteErrors([])} className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-2 rounded shadow">
+              Tutup & Mengerti
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* COMPONENT MODAL CUSTOM (HAPUS KARYAWAN) */}
       {deleteModal.show && (
         <div className="fixed inset-0 bg-slate-900/75 flex items-center justify-center z-50 p-4 transition-opacity">
           <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 transform transition-all border border-slate-200">
             <div className="flex flex-col items-center text-center">
               <div className="bg-red-100 p-3 rounded-full mb-4"><AlertTriangle size={32} className="text-red-600" /></div>
               <h3 className="text-xl font-bold text-slate-800 mb-2">Hapus Karyawan?</h3>
-              <p className="text-slate-600 mb-6 text-sm">Apakah Anda yakin ingin menghapus <b>{deleteModal.nama}</b>?</p>
+              <p className="text-slate-600 mb-6 text-sm">Apakah Anda yakin ingin menghapus <b>{deleteModal.nama}</b>? Data penilaian yang tersimpan pada bulan-bulan sebelumnya tidak akan hilang, namun profil karyawan ini akan dinonaktifkan dari daftar global.</p>
               <div className="flex gap-3 w-full">
                 <button onClick={() => setDeleteModal({ show: false, id: null, nama: '' })} className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 transition-colors font-bold rounded-lg text-slate-700 text-sm">Batal</button>
                 <button onClick={confirmDelete} className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 transition-colors text-white font-bold rounded-lg text-sm shadow-md">Ya, Hapus</button>
