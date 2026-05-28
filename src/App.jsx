@@ -22,7 +22,8 @@ import {
   Lock,
   User,
   LogOut,
-  Smartphone
+  Smartphone,
+  Shield
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
@@ -46,9 +47,7 @@ const app = initializeApp(getFirebaseConfig());
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// =====================================================
 // MASTER DATA DEFAULT
-// =====================================================
 const defaultSettings = {
   areas: ['Smelter C', 'Smelter E', 'Smelter F'], 
   roles: [
@@ -109,7 +108,6 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [isDbReady, setIsDbReady] = useState(false);
   
-  // STATE PWA INSTALL PROMPT
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [showInstallPopup, setShowInstallPopup] = useState(false);
 
@@ -127,17 +125,23 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [dashboardSearch, setDashboardSearch] = useState({}); 
   
-  const [newEmp, setNewEmp] = useState({ nama: '', area: '', role: '', idKaryawan: '', password: '' });
+  // STATE KARYAWAN KINI BERSIH (TANPA KREDENSIAL LOGIN)
+  const [newEmp, setNewEmp] = useState({ nama: '', area: '', role: '' });
   const [selectedRoleContext, setSelectedRoleContext] = useState('SO');
   const [selectedWeek, setSelectedWeek] = useState('w1');
   const [selectedIndicator, setSelectedIndicator] = useState('obs');
   const [pasteText, setPasteText] = useState('');
 
   const [editingId, setEditingId] = useState(null);
-  const [editFormData, setEditFormData] = useState({ nama: '', area: '', role: '', idKaryawan: '', password: '' });
+  const [editFormData, setEditFormData] = useState({ nama: '', area: '', role: '' });
   const [deleteModal, setDeleteModal] = useState({ show: false, id: null, nama: '' });
   const [pasteErrors, setPasteErrors] = useState([]);
   
+  // STATE KHUSUS UNTUK MANAJEMEN AKSES LOGIN (DI TAB PENGATURAN)
+  const [credSearchQuery, setCredSearchQuery] = useState('');
+  const [editingCredId, setEditingCredId] = useState(null);
+  const [credFormData, setCredFormData] = useState({ idKaryawan: '', password: '' });
+
   const [newArea, setNewArea] = useState('');
   const [newCatLabel, setNewCatLabel] = useState('');
   const [newCatTarget, setNewCatTarget] = useState(0);
@@ -149,7 +153,6 @@ export default function App() {
 
   const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'bufn2-kpi-app';
   
-  // PROTEKSI KODE: Fallback data array agar terhindar dari error crash screen blank
   const safeAreas = masterData?.areas && masterData.areas.length > 0 ? masterData.areas : defaultSettings.areas;
   const safeRoles = masterData?.roles && masterData.roles.length > 0 ? masterData.roles : defaultSettings.roles;
   const getActiveCategories = (roleId) => (masterData?.categories && masterData.categories[roleId]) || [];
@@ -169,9 +172,7 @@ export default function App() {
     { id: 'w3', label: 'Minggu 3' }, { id: 'w4', label: 'Minggu 4' }, { id: 'w5', label: 'Minggu 5' }
   ];
 
-  // =====================================================
-  // EFFECT: INTERSEPTOR BACK BUTTON (ANTI-APLIKASI KELUAR)
-  // =====================================================
+  // INTERSEPTOR BACK BUTTON (PWA)
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '');
@@ -194,9 +195,7 @@ export default function App() {
     setActiveTab(tabName);
   };
 
-  // =====================================================
-  // EFFECT: LISTENER POPUP INSTALASI MOBILE & DESKTOP (PWA)
-  // =====================================================
+  // PWA INSTALL PROMPT
   useEffect(() => {
     const handleInstallPrompt = (e) => {
       e.preventDefault();
@@ -209,7 +208,6 @@ export default function App() {
     if (!hasSeenPopup) {
       setTimeout(() => setShowInstallPopup(true), 5000);
     }
-
     return () => window.removeEventListener('beforeinstallprompt', handleInstallPrompt);
   }, []);
 
@@ -228,65 +226,58 @@ export default function App() {
     setShowInstallPopup(false);
   };
 
-  // =====================================================
   // FIRESTORE SYNC INITIALIZER
-  // =====================================================
   useEffect(() => {
-    setIsDbReady(false);
+    const unsubAuth = onAuthStateChanged(auth, async (userObj) => {
+      if (!userObj) await signInAnonymously(auth);
+    });
+
+    const appId = getAppId();
     const unsubs = [];
-    
-    const syncDatabase = async () => {
-      try {
-        await signInAnonymously(auth);
-        const appId = getAppId();
 
-        const unsubSettings = onSnapshot(doc(db, 'artifacts', appId, 'settings', 'master'), (docSnap) => {
-          if (docSnap.exists()) {
-            const data = docSnap.data();
-            const validatedRoles = data.roles && data.roles.length > 0 ? data.roles : defaultSettings.roles;
-            if (!validatedRoles.find(r => r.id === 'Admin')) validatedRoles.push({ id: 'Admin', name: 'Admin Sistem' });
-            if (!validatedRoles.find(r => r.id === 'Foreman')) validatedRoles.push({ id: 'Foreman', name: 'Foreman' });
+    const unsubSettings = onSnapshot(doc(db, 'artifacts', appId, 'settings', 'master'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        const validatedRoles = data.roles && data.roles.length > 0 ? data.roles : defaultSettings.roles;
+        if (!validatedRoles.find(r => r.id === 'Admin')) validatedRoles.push({ id: 'Admin', name: 'Admin Sistem' });
+        if (!validatedRoles.find(r => r.id === 'Foreman')) validatedRoles.push({ id: 'Foreman', name: 'Foreman' });
 
-            const safeData = {
-              areas: data.areas && data.areas.length > 0 ? data.areas : defaultSettings.areas,
-              roles: validatedRoles,
-              categories: data.categories || defaultSettings.categories
-            };
-            setMasterData(safeData);
-            setNewEmp(prev => ({
-              ...prev, 
-              area: prev.area || safeData.areas[0] || '', 
-              role: prev.role || safeData.roles[0]?.id || ''
-            }));
-          } else {
-            setDoc(doc(db, 'artifacts', appId, 'settings', 'master'), defaultSettings);
-          }
-        });
-        unsubs.push(unsubSettings);
+        const safeData = {
+          areas: data.areas && data.areas.length > 0 ? data.areas : defaultSettings.areas,
+          roles: validatedRoles,
+          categories: data.categories || defaultSettings.categories
+        };
+        setMasterData(safeData);
+        setNewEmp(prev => ({
+          ...prev, 
+          area: prev.area || safeData.areas[0] || '', 
+          role: prev.role || safeData.roles[0]?.id || ''
+        }));
+      } else {
+        setDoc(doc(db, 'artifacts', appId, 'settings', 'master'), defaultSettings);
+      }
+      setIsDbReady(true);
+    }, () => setIsDbReady(true));
+    unsubs.push(unsubSettings);
 
-        const unsubPersonnel = onSnapshot(collection(db, 'artifacts', appId, 'personnel'), (s) => { 
-          const d = []; s.forEach(doc => { const data = doc.data(); if (data && data.nama) d.push(data); }); setPersonnel(d); 
-        });
-        unsubs.push(unsubPersonnel);
-        
-        const unsubWeekly = onSnapshot(collection(db, 'artifacts', appId, `weekly_${selectedPeriod}`), (s) => { 
-          const d = {}; s.forEach(doc => { d[doc.id] = doc.data(); }); setWeeklyData(d); 
-        });
-        unsubs.push(unsubWeekly);
-        
-        const unsubMonthly = onSnapshot(collection(db, 'artifacts', appId, `monthly_${selectedPeriod}`), (s) => { 
-          const d = {}; s.forEach(doc => { d[doc.id] = doc.data(); }); setMonthlyData(d); setIsDbReady(true); 
-        }, () => setIsDbReady(true));
-        unsubs.push(unsubMonthly);
+    const unsubPersonnel = onSnapshot(collection(db, 'artifacts', appId, 'personnel'), (s) => { 
+      const d = []; s.forEach(doc => { const data = doc.data(); if (data?.nama) d.push(data); }); setPersonnel(d); 
+    });
+    unsubs.push(unsubPersonnel);
 
-      } catch (err) { console.error(err); setIsDbReady(true); }
-    };
+    return () => { unsubAuth(); unsubs.forEach(u => u()); };
+  }, []);
 
-    if (user) syncDatabase();
-    else return onAuthStateChanged(auth, setUser);
-
-    return () => unsubs.forEach(u => u());
-  }, [user, selectedPeriod]);
+  useEffect(() => {
+    const appId = getAppId();
+    const unsubW = onSnapshot(collection(db, 'artifacts', appId, `weekly_${selectedPeriod}`), (s) => {
+      const d = {}; s.forEach(doc => d[doc.id] = doc.data()); setWeeklyData(d);
+    });
+    const unsubM = onSnapshot(collection(db, 'artifacts', appId, `monthly_${selectedPeriod}`), (s) => {
+      const d = {}; s.forEach(doc => d[doc.id] = doc.data()); setMonthlyData(d);
+    });
+    return () => { unsubW(); unsubM(); };
+  }, [selectedPeriod]);
 
   const isManager = currentUser && ['Admin', 'Foreman', 'WFSO'].includes(currentUser.role);
   useEffect(() => {
@@ -299,9 +290,7 @@ export default function App() {
     }
   }, [activeTab, dashboardMode, selectedPeriod, personnel, selectedRoleContext]);
 
-  // =====================================================
-  // LOGIN INTERCEPTOR EXECUTER
-  // =====================================================
+  // LOGIN INTERCEPTOR
   const handleLoginSubmit = (e) => {
     e.preventDefault();
     const username = loginForm.idKaryawan.trim();
@@ -332,9 +321,7 @@ export default function App() {
     showToast("Berhasil keluar.");
   };
 
-  // =====================================================
-  // OPERASIONAL MASTER DATA
-  // =====================================================
+  // --- OPERASIONAL MASTER DATA ---
   const saveMasterData = async (newData) => {
     try {
       await setDoc(doc(db, 'artifacts', getAppId(), 'settings', 'master'), newData);
@@ -383,28 +370,28 @@ export default function App() {
     setNewCatLabel(''); setNewCatTarget(0);
   };
 
-  // =====================================================
-  // OPERASIONAL KARYAWAN
-  // =====================================================
+  // --- OPERASIONAL KARYAWAN (BERSIH DARI LOGIN) ---
   const handleAddPersonnel = async (e) => {
     e.preventDefault();
-    if (!newEmp.nama.trim() || !newEmp.idKaryawan.trim() || !newEmp.password.trim()) {
-      return showToast("Harap lengkapi data & kredensial login!", "error");
-    }
+    if (!newEmp.nama.trim()) return showToast("Nama karyawan wajib diisi!", "error");
     try {
       const newId = Date.now().toString() + Math.random().toString(36).substr(2, 5);
-      await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', newId), { ...newEmp, id: newId });
-      setNewEmp({ nama: '', area: safeAreas[0] || '', role: safeRoles[0]?.id || '', idKaryawan: '', password: '' });
+      await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', newId), { 
+        id: newId, nama: newEmp.nama, area: newEmp.area, role: newEmp.role, idKaryawan: '', password: '' 
+      });
+      setNewEmp({ nama: '', area: safeAreas[0] || '', role: safeRoles[0]?.id || '' });
       showToast("Karyawan baru berhasil terdaftar!");
     } catch (error) { showToast("Gagal menyimpan: " + error.message, "error"); }
   };
 
   const handleSaveEdit = async () => {
-    if (!editFormData.nama.trim() || !editFormData.idKaryawan.trim() || !editFormData.password.trim()) return;
+    if (!editFormData.nama.trim()) return;
     try {
-      await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', editingId), editFormData, { merge: true });
+      await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', editingId), {
+        nama: editFormData.nama, area: editFormData.area, role: editFormData.role
+      }, { merge: true });
       setEditingId(null);
-      showToast("Profil data karyawan berhasil diubah!");
+      showToast("Profil karyawan berhasil diubah!");
     } catch (error) { showToast("Gagal mengubah: " + error.message, "error"); }
   };
 
@@ -416,9 +403,21 @@ export default function App() {
     } catch (error) { showToast("Gagal menghapus: " + error.message, "error"); }
   };
 
-  // =====================================================
-  // DATA PASTE EXCEL (AUTO-DETECT GLOBAL)
-  // =====================================================
+  // --- OPERASIONAL KREDENSIAL LOGIN (DI TAB PENGATURAN) ---
+  const handleEditCredClick = (emp) => {
+    setEditingCredId(emp.id);
+    setCredFormData({ idKaryawan: emp.idKaryawan || '', password: emp.password || '' });
+  };
+
+  const handleSaveCred = async () => {
+    try {
+      await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', editingCredId), credFormData, { merge: true });
+      setEditingCredId(null);
+      showToast("Akses Login User berhasil diperbarui!");
+    } catch (error) { showToast("Gagal mengubah akses: " + error.message, "error"); }
+  };
+
+  // --- DATA PASTE EXCEL (AUTO-DETECT GLOBAL) ---
   const handleProcessPaste = async () => {
     if (!pasteText.trim()) return showToast('Teks paste kosong!', 'error');
     const lines = pasteText.split('\n');
@@ -551,10 +550,7 @@ export default function App() {
     let defisit = [];
     let targetPersonnel = personnel.filter(p => p.role === selectedRoleContext);
     
-    // Karyawan biasa tidak bisa menghitung defisit orang lain
-    if (!isManager) {
-      targetPersonnel = targetPersonnel.filter(p => p.id === currentUser.id);
-    }
+    if (!isManager) targetPersonnel = targetPersonnel.filter(p => p.id === currentUser.id);
 
     targetPersonnel.forEach(p => {
       const acc = getAccumulatedData(p.id, p.role);
@@ -613,6 +609,9 @@ export default function App() {
   };
 
   const searchResult = personnel.filter(p => (p.nama || '').toLowerCase().includes(searchQuery.toLowerCase()));
+  
+  // Pencarian khusus di Panel Setting Login
+  const credSearchResult = personnel.filter(p => (p.nama || '').toLowerCase().includes(credSearchQuery.toLowerCase()));
 
   // =====================================================
   // RENDER PRAMUAT & JENDELA LOGIN SEBELUM MASUK
@@ -818,6 +817,7 @@ export default function App() {
                   <div className="p-12 text-center bg-white rounded-xl border font-semibold text-slate-500">Mengkalkulasi Rata-rata Nilai 12 Bulan...</div>
                 ) : (
                   <>
+                    {/* JUARA UMUM GLOBAL (HANYA ADMIN) */}
                     {yearlyRecapData.globalBest && currentUser.role === 'Admin' && (
                       <div className="bg-gradient-to-r from-amber-500 to-yellow-600 p-6 rounded-xl shadow-lg text-white flex flex-col md:flex-row items-center justify-between gap-4">
                         <div className="flex items-center gap-4">
@@ -835,6 +835,7 @@ export default function App() {
                       </div>
                     )}
 
+                    {/* JUARA PER-SMELTER (SESUAI AKSES AREA) */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       {getVisibleAreas().map(area => {
                         const winner = yearlyRecapData.areaBest[area];
@@ -864,11 +865,11 @@ export default function App() {
           </div>
         )}
 
-        {/* --- TAB DATABASE KARYAWAN UTAMA (ADMIN ONLY) --- */}
+        {/* --- TAB DATABASE KARYAWAN UTAMA (ADMIN ONLY - TANPA LOGIN FORM) --- */}
         {activeTab === 'database' && currentUser.role === 'Admin' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 lg:col-span-1 h-fit">
-              <h2 className="text-lg font-bold mb-4 pb-2 border-b">Tambah Karyawan</h2>
+              <h2 className="text-lg font-bold mb-4 pb-2 border-b">Tambah Karyawan Baru</h2>
               <form onSubmit={handleAddPersonnel} className="space-y-4">
                 <div><label className="block text-sm text-slate-600 mb-1">Nama Lengkap</label><input type="text" required className="w-full border p-2 rounded focus:ring-emerald-500" value={newEmp.nama} onChange={e => setNewEmp({...newEmp, nama: e.target.value})} /></div>
                 <div className="grid grid-cols-2 gap-2">
@@ -885,26 +886,21 @@ export default function App() {
                     </select>
                   </div>
                 </div>
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-3">
-                  <span className="text-xs font-black text-slate-500 uppercase tracking-wider block">Kredensial Login User</span>
-                  <div><label className="block text-xs font-bold text-slate-600 mb-1">ID Karyawan (Username)</label><input type="text" required placeholder="Contoh: SO-019" className="w-full border p-2 rounded text-sm bg-white font-mono" value={newEmp.idKaryawan} onChange={e => setNewEmp({...newEmp, idKaryawan: e.target.value})} /></div>
-                  <div><label className="block text-xs font-bold text-slate-600 mb-1">Password</label><input type="text" required placeholder="Contoh: 1234" className="w-full border p-2 rounded text-sm bg-white" value={newEmp.password} onChange={e => setNewEmp({...newEmp, password: e.target.value})} /></div>
-                </div>
-                <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 transition-colors text-white font-bold py-2 rounded shadow">Simpan Karyawan</button>
+                <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 transition-colors text-white font-bold py-2 rounded shadow">Simpan Data Karyawan</button>
               </form>
             </div>
             
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 lg:col-span-2">
               <div className="flex justify-between items-center mb-4 border-b pb-4">
-                <h2 className="text-lg font-bold">Daftar Karyawan Global</h2>
+                <h2 className="text-lg font-bold">Data Profil Karyawan Global</h2>
                 <div className="relative"><Search size={16} className="absolute left-2 top-2.5 text-slate-400" /><input type="text" placeholder="Cari nama..." className="pl-8 pr-2 py-1.5 border rounded text-sm w-48 focus:ring-emerald-500" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}/></div>
               </div>
               <div className="overflow-y-auto max-h-[500px] border rounded shadow-inner">
                 <table className="w-full text-left text-sm border-collapse">
-                  <thead className="bg-slate-100 sticky top-0 z-10"><tr className="shadow-sm"><th className="p-3">Nama</th><th className="p-3 text-center">Smelter</th><th className="p-3 text-center">Role</th><th className="p-3 text-center">Kredensial Login</th><th className="p-3 text-center">Aksi</th></tr></thead>
+                  <thead className="bg-slate-100 sticky top-0 z-10"><tr className="shadow-sm"><th className="p-3">Nama Lengkap</th><th className="p-3 text-center">Smelter</th><th className="p-3 text-center">Jabatan Aktif</th><th className="p-3 text-center">Aksi</th></tr></thead>
                   <tbody>
                     {searchResult.length === 0 ? (
-                      <tr><td colSpan="5" className="text-center p-10 text-slate-500 border border-dashed bg-slate-50">Karyawan tidak ditemukan.</td></tr>
+                      <tr><td colSpan="4" className="text-center p-10 text-slate-500 border border-dashed bg-slate-50">Karyawan tidak ditemukan.</td></tr>
                     ) : (
                       searchResult.map(p => {
                         const isAreaUnknown = !safeAreas.includes(p.area);
@@ -915,22 +911,13 @@ export default function App() {
                               <td className="p-2"><input type="text" className="border p-1 w-full text-sm rounded focus:ring-emerald-500" value={editFormData.nama} onChange={(e) => setEditFormData({...editFormData, nama: e.target.value})} /></td>
                               <td className="p-2 text-center"><select className="border p-1 text-sm rounded focus:ring-emerald-500" value={editFormData.area} onChange={(e) => setEditFormData({...editFormData, area: e.target.value})}>{safeAreas.map(a => <option key={a} value={a}>{a}</option>)}</select></td>
                               <td className="p-2 text-center"><select className="border p-1 text-sm rounded focus:ring-emerald-500" value={editFormData.role} onChange={(e) => setEditFormData({...editFormData, role: e.target.value})}>{safeRoles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></td>
-                              <td className="p-2 flex flex-col gap-1">
-                                <input type="text" placeholder="Username" className="border p-1 text-xs rounded font-mono" value={editFormData.idKaryawan} onChange={(e) => setEditFormData({...editFormData, idKaryawan: e.target.value})} />
-                                <input type="text" placeholder="Password" className="border p-1 text-xs rounded" value={editFormData.password} onChange={(e) => setEditFormData({...editFormData, password: e.target.value})} />
-                              </td>
                               <td className="p-2 text-center space-x-2 whitespace-nowrap"><button onClick={handleSaveEdit} className="text-white bg-emerald-600 px-3 py-1.5 rounded font-bold text-xs shadow">Simpan</button><button onClick={() => setEditingId(null)} className="bg-slate-200 px-3 py-1.5 rounded font-bold text-xs">Batal</button></td>
                             </>
                           ) : (
                             <>
                               <td className="p-3 font-medium text-slate-700">{p.nama}</td>
-                              <td className="p-3 text-center font-bold text-slate-500">
-                                {p.area} {isAreaUnknown && <span className="text-red-500 text-xs block mt-1">(Perlu Diupdate)</span>}
-                              </td>
+                              <td className="p-3 text-center font-bold text-slate-500">{p.area} {isAreaUnknown && <span className="text-red-500 text-xs block mt-1">(Perlu Diupdate)</span>}</td>
                               <td className="p-3 text-center"><span className="px-3 py-1 bg-slate-200 rounded-full text-xs font-bold">{safeRoles.find(r=>r.id===p.role)?.name || p.role}</span></td>
-                              <td className="p-3 text-center text-xs font-mono text-slate-500">
-                                 ID: <b className="text-slate-700">{p.idKaryawan || '-'}</b> <br/> PW: <span className="text-slate-700">{p.password || '-'}</span>
-                              </td>
                               <td className="p-3 text-center space-x-4"><button onClick={() => handleEditClick(p)} className="text-blue-500 hover:text-blue-700"><Edit size={18}/></button><button onClick={() => setDeleteModal({ show: true, id: p.id, nama: p.nama })} className="text-red-500 hover:text-red-700"><Trash2 size={18}/></button></td>
                             </>
                           )}
@@ -1058,10 +1045,11 @@ export default function App() {
         {/* --- TAB PENGATURAN (ONLY ADMIN) --- */}
         {activeTab === 'pengaturan' && currentUser.role === 'Admin' && (
           <div className="bg-slate-800 p-6 rounded-xl shadow-lg border border-slate-700 text-slate-200">
-            <h2 className="font-bold text-2xl mb-2 text-white flex items-center gap-2"><Settings /> Pengaturan Sistem (Master Data)</h2>
+            <h2 className="font-bold text-2xl mb-2 text-white flex items-center gap-2"><Settings /> Pengaturan Sistem Utama</h2>
             <p className="text-sm text-slate-400 mb-8 border-b border-slate-700 pb-4">Setiap perubahan di sini akan otomatis mengubah seluruh struktur tabel, form, dan rumus penilaian di aplikasi secara instan.</p>
             
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* KOLOM KIRI: MANAJEMEN SMELTER */}
               <div className="bg-slate-900 p-5 rounded-lg border border-slate-700 h-fit lg:col-span-1">
                 <h3 className="font-bold text-white mb-4 flex items-center gap-2">Manajemen Smelter / Area</h3>
                 <div className="flex gap-2 mb-4">
@@ -1077,6 +1065,7 @@ export default function App() {
                 </div>
               </div>
 
+              {/* KOLOM KANAN: MANAJEMEN INDIKATOR */}
               <div className="bg-slate-900 p-5 rounded-lg border border-slate-700 lg:col-span-2">
                 <h3 className="font-bold text-white mb-4">Manajemen Indikator & Target Utama</h3>
                 <div className="grid grid-cols-1 gap-6 mb-8">
@@ -1130,6 +1119,70 @@ export default function App() {
                     <button onClick={handleAddCategory} className="bg-emerald-600 hover:bg-emerald-500 px-4 py-2 rounded text-white font-bold text-sm h-[38px] shadow transition-colors">Simpan</button>
                   </div>
                 </div>
+              </div>
+            </div>
+
+            {/* SEKSI BARU: MANAJEMEN AKSES LOGIN */}
+            <div className="mt-8 bg-slate-900 p-5 rounded-lg border border-slate-700">
+              <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-4 border-b border-slate-700 pb-4">
+                <h3 className="font-bold text-white flex items-center gap-2">
+                  <Shield size={20} className="text-emerald-400"/> Manajemen Akses Login (Kredensial User)
+                </h3>
+                <div className="relative">
+                  <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
+                  <input type="text" placeholder="Cari nama karyawan..." className="pl-8 pr-2 py-1.5 bg-slate-800 border border-slate-600 rounded text-sm text-white focus:ring-emerald-500 w-full md:w-64" value={credSearchQuery} onChange={e => setCredSearchQuery(e.target.value)} />
+                </div>
+              </div>
+              
+              <div className="overflow-x-auto max-h-[400px] border border-slate-700 rounded-lg shadow-inner">
+                <table className="w-full text-left text-sm text-slate-300">
+                  <thead className="bg-slate-800 text-slate-200 sticky top-0">
+                    <tr>
+                      <th className="p-3 border-b border-slate-700">Nama Karyawan</th>
+                      <th className="p-3 border-b border-slate-700 text-center">Jabatan</th>
+                      <th className="p-3 border-b border-slate-700 text-center">ID (Username)</th>
+                      <th className="p-3 border-b border-slate-700 text-center">Password</th>
+                      <th className="p-3 border-b border-slate-700 text-center">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {credSearchResult.length === 0 ? (
+                      <tr><td colSpan="5" className="p-8 text-center text-slate-500 italic">Karyawan tidak ditemukan.</td></tr>
+                    ) : (
+                      credSearchResult.map(p => (
+                        <tr key={p.id} className="border-b border-slate-700/50 hover:bg-slate-800/50">
+                          <td className="p-3 font-medium text-white">{p.nama} <span className="block text-xs text-slate-500">{p.area}</span></td>
+                          <td className="p-3 text-center text-xs">{safeRoles.find(r=>r.id===p.role)?.name || p.role}</td>
+                          
+                          {editingCredId === p.id ? (
+                            <>
+                              <td className="p-2 text-center">
+                                <input type="text" placeholder="Buat Username" className="bg-slate-800 border border-slate-600 rounded p-1.5 w-full text-white text-xs font-mono focus:ring-emerald-500 text-center" value={credFormData.idKaryawan} onChange={(e) => setCredFormData({...credFormData, idKaryawan: e.target.value})} />
+                              </td>
+                              <td className="p-2 text-center">
+                                <input type="text" placeholder="Buat Password" className="bg-slate-800 border border-slate-600 rounded p-1.5 w-full text-white text-xs focus:ring-emerald-500 text-center" value={credFormData.password} onChange={(e) => setCredFormData({...credFormData, password: e.target.value})} />
+                              </td>
+                              <td className="p-3 text-center space-x-2 whitespace-nowrap">
+                                <button onClick={handleSaveCred} className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded font-bold text-xs shadow">Simpan</button>
+                                <button onClick={() => setEditingCredId(null)} className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded font-bold text-xs">Batal</button>
+                              </td>
+                            </>
+                          ) : (
+                            <>
+                              <td className="p-3 text-center text-emerald-400 font-mono tracking-wide">{p.idKaryawan || <span className="text-slate-600 italic">Belum diset</span>}</td>
+                              <td className="p-3 text-center text-slate-400 font-mono">{p.password || <span className="text-slate-600 italic">Belum diset</span>}</td>
+                              <td className="p-3 text-center">
+                                <button onClick={() => handleEditCredClick(p)} className="text-blue-400 hover:text-blue-300 flex items-center gap-1 mx-auto text-xs font-bold bg-blue-400/10 px-3 py-1.5 rounded">
+                                  <Edit size={14}/> Edit Akses
+                                </button>
+                              </td>
+                            </>
+                          )}
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
