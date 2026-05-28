@@ -592,7 +592,7 @@ export default function App() {
                 <CheckCircle size={48} className="text-emerald-500" />
               </div>
               <h2 className="text-2xl font-black text-white tracking-tighter uppercase">Portal KPI HSE BUFN 2</h2>
-              <p className="text-slate-500 text-sm mt-1">Sistem Evaluasi</p>
+              <p className="text-slate-500 text-sm mt-1">Sistem Evaluasi Mandiri</p>
             </div>
             
             <form onSubmit={handleLoginSubmit} className="space-y-5">
