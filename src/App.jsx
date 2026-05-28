@@ -88,13 +88,13 @@ export default function App() {
   // =====================================================
   const [currentUser, setCurrentUser] = useState(null); 
   const [loginForm, setLoginForm] = useState({ idKaryawan: '', password: '' });
+  const [rememberMe, setRememberMe] = useState(false); 
   const [isCheckingSession, setIsCheckingSession] = useState(true); 
   
   const [activeTab, setActiveTab] = useState('dashboard');
   const [dashboardMode, setDashboardMode] = useState('bulanan'); 
   const [activeSettingTab, setActiveSettingTab] = useState('akun'); 
   const [selectedPeriod, setSelectedPeriod] = useState(getCurrentMonth());
-  const [user, setUser] = useState(null);
   const [isDbReady, setIsDbReady] = useState(false);
   
   const [deferredPrompt, setDeferredPrompt] = useState(null);
@@ -148,7 +148,7 @@ export default function App() {
     const allCats = [];
     safeRoles.forEach(r => {
       getActiveCategories(r.id).forEach(c => {
-        if (!allCats.find(existing => existing.key === c.key)) allCats.push(c);
+        if (c && !allCats.find(existing => existing?.key === c?.key)) allCats.push(c);
       });
     });
     return allCats;
@@ -160,7 +160,7 @@ export default function App() {
   ];
 
   // =====================================================
-  // HELPER: PENCATAT WAKTU SINKRONISASI
+  // HELPER: PENCATAT WAKTU SINKRONISASI (TIMESTAMP)
   // =====================================================
   const updateLastModified = async () => {
     try {
@@ -170,7 +170,7 @@ export default function App() {
       
       setMasterData(prev => ({ ...prev, lastDataUpdate: timestampString }));
       await setDoc(doc(db, 'artifacts', getAppId(), 'settings', 'master'), { lastDataUpdate: timestampString }, { merge: true });
-      showToast("Waktu sinkronisasi berhasil diperbarui!");
+      showToast("Waktu sinkronisasi diperbarui!");
     } catch (error) { console.error("Gagal update timestamp:", error); }
   };
 
@@ -209,9 +209,10 @@ export default function App() {
   };
 
   // =====================================================
-  // RESTORE LOGIN SESSION INSTAN (ANTI-REFRESH)
+  // RESTORE LOGIN SESSION INSTAN (ANTI-REFRESH) & FIRESTORE
   // =====================================================
   useEffect(() => {
+    // 1. Cek Sesi Penyimpanan Lokal Perangkat
     const savedUser = localStorage.getItem('bufn2_user_session');
     if (savedUser) {
       try { setCurrentUser(JSON.parse(savedUser)); } 
@@ -219,6 +220,7 @@ export default function App() {
     }
     setIsCheckingSession(false);
 
+    // 2. Buat koneksi Firebase Cloud
     const unsubAuth = onAuthStateChanged(auth, async (userObj) => {
       if (!userObj) try { await signInAnonymously(auth); } catch (e) { console.error(e); }
     });
@@ -276,7 +278,7 @@ export default function App() {
   }, [activeTab, dashboardMode, selectedPeriod, personnel, selectedRoleContext]);
 
   // =====================================================
-  // LOGIN SUBMIT (OTOMATIS TERSIMPAN PERMANEN)
+  // LOGIN SUBMIT (OTOMATIS TERSIMPAN PERMANEN) & ANTI HURUF BESAR KECIL
   // =====================================================
   const handleLoginSubmit = (e) => {
     e.preventDefault();
@@ -294,7 +296,12 @@ export default function App() {
       return;
     }
 
-    const foundUser = personnel.find(p => p.idKaryawan && p.idKaryawan.trim() === username && p.password && p.password.trim() === password);
+    // Perbaikan Login: Memastikan pengecekan ID tidak peduli huruf besar/kecil
+    const foundUser = personnel.find(p => 
+      (p?.idKaryawan || '').trim().toLowerCase() === username.toLowerCase() && 
+      (p?.password || '').trim() === password
+    );
+
     if (foundUser) {
       setCurrentUser(foundUser);
       localStorage.setItem('bufn2_user_session', JSON.stringify(foundUser));
@@ -393,7 +400,7 @@ export default function App() {
     });
     const updates = {}; let matchedCount = 0; let notFoundNames = [];
     Object.keys(counts).forEach(namaKey => {
-      const emp = personnel.find(p => p.nama?.toLowerCase() === namaKey);
+      const emp = personnel.find(p => p?.nama?.toLowerCase() === namaKey);
       if (emp) {
         if (!updates[emp.id]) updates[emp.id] = {}; if (!updates[emp.id][selectedWeek]) updates[emp.id][selectedWeek] = {};
         const oldVal = weeklyData[emp.id]?.[selectedWeek]?.[selectedIndicator] || 0;
@@ -500,6 +507,7 @@ export default function App() {
     if (!isManager) list = list.filter(p => p?.id === currentUser?.id); 
     return list;
   };
+  
   const handleDashboardSearchChange = (area, val) => { setDashboardSearch(prev => ({ ...prev, [area]: val })); };
   const searchResult = personnel.filter(p => (p?.nama || '').toLowerCase().includes(searchQuery.toLowerCase()));
   const credSearchResult = personnel.filter(p => (p?.nama || '').toLowerCase().includes(credSearchQuery.toLowerCase()));
@@ -709,7 +717,7 @@ export default function App() {
                 {getVisibleAreas().map(area => {
                   const defisitArea = getDefisitTarget().filter(d => d?.area === area);
                   const searchKey = dashboardSearch[area] || '';
-                  const finalDefisitList = defisitArea.filter(d => d?.nama?.toLowerCase().includes(searchKey.toLowerCase()));
+                  const finalDefisitList = defisitArea.filter(d => (d?.nama || '').toLowerCase().includes(searchKey.toLowerCase()));
 
                   return (
                     <div key={area} className="bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-slate-200">
@@ -825,8 +833,8 @@ export default function App() {
                           searchResult.map(p => {
                             const isAreaUnknown = !safeAreas.includes(p?.area);
                             return (
-                            <tr key={p.id} className={`border-b border-slate-100 hover:bg-slate-50 transition-colors ${isAreaUnknown ? 'bg-red-50/50' : ''}`}>
-                              {editingId === p.id ? (
+                            <tr key={p?.id} className={`border-b border-slate-100 hover:bg-slate-50 transition-colors ${isAreaUnknown ? 'bg-red-50/50' : ''}`}>
+                              {editingId === p?.id ? (
                                 <>
                                   <td className="p-2"><input type="text" className="border border-slate-300 p-2 w-full text-sm rounded-lg focus:ring-emerald-500 outline-none" value={editFormData.nama} onChange={(e) => setEditFormData({...editFormData, nama: e.target.value})} /></td>
                                   <td className="p-2 text-center"><select className="border border-slate-300 p-2 text-sm rounded-lg focus:ring-emerald-500 bg-white outline-none" value={editFormData.area} onChange={(e) => setEditFormData({...editFormData, area: e.target.value})}>{safeAreas.map(a => <option key={a} value={a}>{a}</option>)}</select></td>
