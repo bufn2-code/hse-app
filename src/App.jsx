@@ -88,7 +88,7 @@ export default function App() {
   // =====================================================
   const [currentUser, setCurrentUser] = useState(null); 
   const [loginForm, setLoginForm] = useState({ idKaryawan: '', password: '' });
-  const [isCheckingSession, setIsCheckingSession] = useState(true); // State Loading Session
+  const [isCheckingSession, setIsCheckingSession] = useState(true); 
   
   const [activeTab, setActiveTab] = useState('dashboard');
   const [dashboardMode, setDashboardMode] = useState('bulanan'); 
@@ -159,7 +159,7 @@ export default function App() {
   ];
 
   // =====================================================
-  // HELPER: PENCATAT WAKTU OTOMATIS (LAST UPDATE)
+  // HELPER: PENCATAT WAKTU OTOMATIS (AUTO-TIMESTAMP)
   // =====================================================
   const updateLastModified = async () => {
     try {
@@ -173,7 +173,6 @@ export default function App() {
       
       const timestampString = `${day} ${month} ${year} - Pukul ${hours}:${minutes} WITA`;
       
-      // Simpan ke state dan database
       setMasterData(prev => ({ ...prev, lastDataUpdate: timestampString }));
       await setDoc(doc(db, 'artifacts', getAppId(), 'settings', 'master'), { lastDataUpdate: timestampString }, { merge: true });
     } catch (error) {
@@ -182,31 +181,35 @@ export default function App() {
   };
 
   // =====================================================
-  // SISTEM JEBAKAN TOMBOL KEMBALI HP
+  // 1. SISTEM JEBAKAN TOMBOL KEMBALI HP (SUDAH DIPERBAIKI)
   // =====================================================
   useEffect(() => {
-    window.history.pushState({ trap: true }, '');
+    // Memberikan riwayat palsu agar back button ada yang di-pop
+    window.history.pushState(null, '', window.location.href);
+    
     const handlePopState = (e) => {
       e.preventDefault();
       setShowExitModal(true); 
+      // Tambahkan history palsu lagi agar tetap terjebak
+      window.history.pushState(null, '', window.location.href);
     };
+    
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
   const cancelExitApp = () => {
     setShowExitModal(false);
-    window.history.pushState({ trap: true }, '');
   };
 
   const confirmExitApp = () => {
     setShowExitModal(false);
     window.close();
-    setTimeout(() => { window.history.back(); }, 100);
+    setTimeout(() => { window.history.go(-2); }, 100);
   };
 
   // =====================================================
-  // POPUP MANIFEST PWA
+  // 2. SISTEM POPUP INSTALASI PWA (MOBILE DETECT)
   // =====================================================
   useEffect(() => {
     const handleInstallPrompt = (e) => {
@@ -239,20 +242,20 @@ export default function App() {
   };
 
   // =====================================================
-  // FIRESTORE SYNC & CEK SESI LOGIN
+  // 3. FIRESTORE SYNC INITIALIZER & AUTO LOGIN
   // =====================================================
   useEffect(() => {
-    // CEK SESI DI LOCALSTORAGE (FITUR TETAP LOGIN)
+    // Mengecek localStorage otomatis (Sesi Tetap Login)
     const savedUser = localStorage.getItem('bufn2_user_session');
     if (savedUser) {
       try { setCurrentUser(JSON.parse(savedUser)); } 
       catch (e) { localStorage.removeItem('bufn2_user_session'); }
     }
-    setIsCheckingSession(false); // Selesai cek sesi
+    setIsCheckingSession(false);
 
     const unsubAuth = onAuthStateChanged(auth, async (userObj) => {
       if (!userObj) {
-        try { await signInAnonymously(auth); } catch (e) { console.error("Koneksi ditolak:", e); }
+        try { await signInAnonymously(auth); } catch (e) { console.error("Koneksi ditolak HP:", e); }
       }
     });
 
@@ -270,7 +273,7 @@ export default function App() {
           areas: data.areas && data.areas.length > 0 ? data.areas : defaultSettings.areas,
           roles: validatedRoles,
           categories: data.categories || defaultSettings.categories,
-          lastDataUpdate: data.lastDataUpdate || '' // Tangkap lastDataUpdate
+          lastDataUpdate: data.lastDataUpdate || '' 
         };
         setMasterData(safeData);
       } else {
@@ -285,7 +288,8 @@ export default function App() {
     });
     unsubs.push(unsubPersonnel);
 
-    return () => { unsubAuth(); unsubs.forEach(u => u()); };
+    const timeoutDb = setTimeout(() => setIsDbReady(true), 3000);
+    return () => { unsubAuth(); unsubs.forEach(u => u()); clearTimeout(timeoutDb); };
   }, []);
 
   useEffect(() => {
@@ -311,28 +315,28 @@ export default function App() {
   }, [activeTab, dashboardMode, selectedPeriod, personnel, selectedRoleContext]);
 
   // =====================================================
-  // LOGIN EXECUTOR (OTOMATIS SIMPAN KE LOCALSTORAGE)
+  // 5. LOGIN & LOGOUT EXECUTOR (AUTO SAVE SESSION)
   // =====================================================
   const handleLoginSubmit = (e) => {
     e.preventDefault();
-    const username = loginForm.idKaryawan.trim().toLowerCase(); // Case insensitive
+    const username = loginForm.idKaryawan.trim();
     const password = loginForm.password.trim();
 
     if (!username || !password) return showToast("Harap isi seluruh kolom!", "error");
 
-    if (username === 'admin' && password === 'adminbufn2') {
+    if (username.toLowerCase() === 'admin' && password === 'adminbufn2') {
       const adminData = { id: 'master-admin', nama: 'Super Admin HSE', role: 'Admin', area: 'All Smelters', idKaryawan: 'admin' };
       setCurrentUser(adminData);
-      localStorage.setItem('bufn2_user_session', JSON.stringify(adminData)); // Otomatis simpan sesi
+      localStorage.setItem('bufn2_user_session', JSON.stringify(adminData));
       showToast("Selamat datang, Super Admin!");
       setActiveTab('dashboard');
       return;
     }
 
-    const foundUser = personnel.find(p => (p.idKaryawan || '').trim().toLowerCase() === username && (p.password || '').trim() === password);
+    const foundUser = personnel.find(p => p.idKaryawan && p.idKaryawan.trim() === username && p.password && p.password.trim() === password);
     if (foundUser) {
       setCurrentUser(foundUser);
-      localStorage.setItem('bufn2_user_session', JSON.stringify(foundUser)); // Otomatis simpan sesi
+      localStorage.setItem('bufn2_user_session', JSON.stringify(foundUser));
       showToast(`Selamat datang, ${foundUser.nama}!`);
       setActiveTab('dashboard');
     } else {
@@ -343,13 +347,8 @@ export default function App() {
   const handleLogout = () => {
     setCurrentUser(null);
     setLoginForm({ idKaryawan: '', password: '' });
-    localStorage.removeItem('bufn2_user_session'); // Hapus sesi saat logout
+    localStorage.removeItem('bufn2_user_session'); // Hapus sesi jika logout
     showToast("Berhasil keluar.");
-  };
-
-  const handleTabClick = (tabName) => {
-    window.location.hash = tabName;
-    setActiveTab(tabName);
   };
 
   const scrollToView = (e) => {
@@ -360,8 +359,11 @@ export default function App() {
   // OPERASIONAL KARYAWAN & MASTER DATA
   // =====================================================
   const saveMasterData = async (newData) => {
-    try { await setDoc(doc(db, 'artifacts', getAppId(), 'settings', 'master'), newData); showToast("Master data disimpan!"); } 
-    catch (error) { showToast("Gagal menyimpan: " + error.message, "error"); }
+    try { 
+      await setDoc(doc(db, 'artifacts', getAppId(), 'settings', 'master'), newData); 
+      await updateLastModified();
+      showToast("Master data disimpan!"); 
+    } catch (error) { showToast("Gagal menyimpan: " + error.message, "error"); }
   };
   const handleAddArea = () => {
     if(!newArea.trim()) return;
@@ -397,6 +399,7 @@ export default function App() {
     try {
       const newId = Date.now().toString() + Math.random().toString(36).substr(2, 5);
       await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', newId), { id: newId, nama: newEmp.nama, area: newEmp.area, role: newEmp.role, idKaryawan: '', password: '' });
+      await updateLastModified();
       setNewEmp({ nama: '', area: safeAreas[0] || '', role: safeRoles[0]?.id || '' }); showToast("Karyawan baru terdaftar!");
     } catch (error) { showToast("Gagal menyimpan: " + error.message, "error"); }
   };
@@ -408,13 +411,19 @@ export default function App() {
 
   const handleSaveEdit = async () => {
     if (!editFormData.nama.trim()) return;
-    try { await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', editingId), { nama: editFormData.nama, area: editFormData.area, role: editFormData.role }, { merge: true }); setEditingId(null); showToast("Profil diubah!"); } 
-    catch (error) { showToast("Gagal mengubah: " + error.message, "error"); }
+    try { 
+      await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', editingId), { nama: editFormData.nama, area: editFormData.area, role: editFormData.role }, { merge: true }); 
+      await updateLastModified();
+      setEditingId(null); showToast("Profil diubah!"); 
+    } catch (error) { showToast("Gagal mengubah: " + error.message, "error"); }
   };
 
   const confirmDelete = async () => {
-    try { await deleteDoc(doc(db, 'artifacts', getAppId(), 'personnel', deleteModal.id)); setDeleteModal({ show: false, id: null, nama: '' }); showToast("Data dihapus permanen!"); } 
-    catch (error) { showToast("Gagal menghapus: " + error.message, "error"); }
+    try { 
+      await deleteDoc(doc(db, 'artifacts', getAppId(), 'personnel', deleteModal.id)); 
+      await updateLastModified();
+      setDeleteModal({ show: false, id: null, nama: '' }); showToast("Data dihapus permanen!"); 
+    } catch (error) { showToast("Gagal menghapus: " + error.message, "error"); }
   };
 
   const handleEditCredClick = (emp) => {
@@ -428,7 +437,7 @@ export default function App() {
   };
   
   // =====================================================
-  // DATA PASTE EXCEL & LOGIKA MATEMATIKA (UPDATE TIMESTAMP)
+  // DATA PASTE EXCEL (AUTO-DETECT GLOBAL & TIMESTAMP)
   // =====================================================
   const handleProcessPaste = async () => {
     if (!pasteText.trim()) return showToast('Teks paste kosong!', 'error');
@@ -458,7 +467,7 @@ export default function App() {
     try {
       for (const empId of Object.keys(updates)) { await setDoc(doc(db, 'artifacts', getAppId(), `weekly_${selectedPeriod}`, empId), updates[empId], { merge: true }); }
       
-      await updateLastModified(); // Catat waktu sinkronisasi ke Firebase
+      await updateLastModified();
       
       setPasteText(''); showToast(`Berhasil merekap ${lineTotal} data!`);
       if(notFoundNames.length > 0) setPasteErrors(Array.from(new Set(notFoundNames)));
@@ -468,10 +477,13 @@ export default function App() {
   const handleMonthlyInput = async (empId, field, value) => {
     try { 
       await setDoc(doc(db, 'artifacts', getAppId(), `monthly_${selectedPeriod}`, empId), { [field]: value }, { merge: true }); 
-      await updateLastModified(); // Catat waktu sinkronisasi ke Firebase
+      await updateLastModified();
     } catch (error) { console.error(error); }
   };
 
+  // =====================================================
+  // ENGINE LOGIKA RUMUS MATEMATIKA KPI
+  // =====================================================
   const getAccumulatedData = (empId, role) => {
     const empData = weeklyData[empId] || {}; const total = {};
     getActiveCategories(role).forEach(c => total[c.key] = 0);
@@ -572,7 +584,7 @@ export default function App() {
 
 
   // =====================================================
-  // RENDER PRAMUAT & JENDELA LOGIN (EARLY RETURNS)
+  // RENDER PRAMUAT & JENDELA LOGIN
   // =====================================================
   if (!isDbReady || isCheckingSession) {
     return (
@@ -652,8 +664,7 @@ export default function App() {
                 />
               </div>
             </div>
-
-            <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-3.5 rounded-2xl shadow-xl shadow-emerald-900/40 transition-all transform active:scale-[0.98] tracking-widest text-sm mt-4">
+            <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-3.5 rounded-2xl shadow-xl shadow-emerald-900/40 transition-all transform active:scale-[0.98] tracking-widest text-sm mt-6">
               MASUK SISTEM
             </button>
           </form>
@@ -663,7 +674,7 @@ export default function App() {
   }
 
   // =====================================================
-  // RENDER DASHBOARD CORE SYSTEM (AUTHENTICATED)
+  // RENDER DASHBOARD CORE SYSTEM
   // =====================================================
   return (
     <div className="min-h-[100dvh] bg-slate-50 text-slate-800 font-sans pb-12 relative overflow-hidden">
@@ -675,6 +686,7 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL EXIT APP */}
       {showExitModal && (
         <div className="fixed inset-0 bg-slate-900/80 flex items-center justify-center z-[200] p-4 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white rounded-3xl shadow-2xl max-w-xs w-full p-6 text-center border border-slate-200">
@@ -718,17 +730,18 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto mt-6 px-4">
+        {/* TABS NAVIGATION */}
         <div className="flex overflow-x-auto whitespace-nowrap space-x-2 border-b border-slate-200 mb-6 pb-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
-          <button onClick={() => handleTabClick('dashboard')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'dashboard' ? 'bg-white text-emerald-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}><LayoutDashboard size={16}/> Dashboard</button>
+          <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'dashboard' ? 'bg-white text-emerald-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}><LayoutDashboard size={16}/> Dashboard</button>
           {currentUser.role === 'Admin' && (
             <>
-              <button onClick={() => handleTabClick('database')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'database' ? 'bg-white text-emerald-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}><Database size={16}/> Karyawan</button>
-              <button onClick={() => handleTabClick('input')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'input' ? 'bg-white text-emerald-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}><ClipboardPaste size={16}/> Input Nilai</button>
+              <button onClick={() => setActiveTab('database')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'database' ? 'bg-white text-emerald-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}><Database size={16}/> Karyawan</button>
+              <button onClick={() => setActiveTab('input')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'input' ? 'bg-white text-emerald-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}><ClipboardPaste size={16}/> Input Nilai</button>
             </>
           )}
-          <button onClick={() => handleTabClick('laporan')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'laporan' ? 'bg-white text-emerald-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}><Table size={16}/> Laporan</button>
+          <button onClick={() => setActiveTab('laporan')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'laporan' ? 'bg-white text-emerald-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}><Table size={16}/> Laporan</button>
           {currentUser.role === 'Admin' && (
-            <button onClick={() => handleTabClick('pengaturan')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'pengaturan' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:bg-slate-200'}`}><Settings size={16}/> Pengaturan</button>
+            <button onClick={() => setActiveTab('pengaturan')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'pengaturan' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:bg-slate-200'}`}><Settings size={16}/> Pengaturan</button>
           )}
         </div>
 
@@ -747,6 +760,7 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
             
+            {/* BANNER TIMESTAMP TERAKHIR DIUPDATE */}
             <div className="bg-emerald-50 border border-emerald-200 px-4 py-3 rounded-2xl flex items-center gap-3 shadow-sm mb-4">
               <div className="bg-emerald-100 p-2.5 rounded-xl text-emerald-600"><Clock size={20}/></div>
               <div className="flex-1">
@@ -755,6 +769,11 @@ export default function App() {
                   Last Update : {masterData.lastDataUpdate || 'Belum ada data'}
                 </p>
               </div>
+              {currentUser.role === 'Admin' && (
+                <button onClick={updateLastModified} className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] md:text-xs font-bold px-3 py-2 rounded-xl shadow-sm transition-all active:scale-95 whitespace-nowrap border border-emerald-700">
+                  Update Waktu
+                </button>
+              )}
             </div>
 
             {isManager && (
@@ -854,323 +873,325 @@ export default function App() {
                 )}
               </div>
             )}
-          </div>
-        )}
 
-        {/* --- TAB DATABASE KARYAWAN (ADMIN ONLY) --- */}
-        {activeTab === 'database' && currentUser.role === 'Admin' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-slate-200 lg:col-span-1 h-fit">
-              <h2 className="text-lg font-black mb-5 pb-3 border-b border-slate-100 text-slate-800">Tambah Karyawan Baru</h2>
-              <form onSubmit={handleAddPersonnel} className="space-y-4">
-                <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Nama Lengkap</label><input type="text" required className="w-full border border-slate-300 p-3 rounded-xl focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-sm shadow-sm" value={newEmp.nama} onChange={e => setNewEmp({...newEmp, nama: e.target.value})} /></div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Smelter</label><select className="w-full border border-slate-300 p-3 rounded-xl focus:ring-emerald-500 text-sm bg-white shadow-sm outline-none" value={newEmp.area} onChange={e => setNewEmp({...newEmp, area: e.target.value})}>{safeAreas.map(a => <option key={a} value={a}>{a}</option>)}</select></div>
-                  <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Jabatan</label><select className="w-full border border-slate-300 p-3 rounded-xl focus:ring-emerald-500 text-sm bg-white shadow-sm outline-none" value={newEmp.role} onChange={e => setNewEmp({...newEmp, role: e.target.value})}>{safeRoles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></div>
+            {/* --- TAB DATABASE KARYAWAN (ADMIN ONLY) --- */}
+            {activeTab === 'database' && currentUser.role === 'Admin' && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-slate-200 lg:col-span-1 h-fit">
+                  <h2 className="text-lg font-black mb-5 pb-3 border-b border-slate-100 text-slate-800">Tambah Karyawan Baru</h2>
+                  <form onSubmit={handleAddPersonnel} className="space-y-4">
+                    <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Nama Lengkap</label><input type="text" required className="w-full border border-slate-300 p-3 rounded-xl focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-sm shadow-sm" value={newEmp.nama} onChange={e => setNewEmp({...newEmp, nama: e.target.value})} /></div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Smelter</label><select className="w-full border border-slate-300 p-3 rounded-xl focus:ring-emerald-500 text-sm bg-white shadow-sm outline-none" value={newEmp.area} onChange={e => setNewEmp({...newEmp, area: e.target.value})}>{safeAreas.map(a => <option key={a} value={a}>{a}</option>)}</select></div>
+                      <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Jabatan</label><select className="w-full border border-slate-300 p-3 rounded-xl focus:ring-emerald-500 text-sm bg-white shadow-sm outline-none" value={newEmp.role} onChange={e => setNewEmp({...newEmp, role: e.target.value})}>{safeRoles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></div>
+                    </div>
+                    <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 transition-colors text-white font-black py-3.5 rounded-xl shadow-lg shadow-emerald-900/20 text-sm mt-4 tracking-wide">SIMPAN DATA</button>
+                  </form>
                 </div>
-                <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 transition-colors text-white font-black py-3.5 rounded-xl shadow-lg shadow-emerald-900/20 text-sm mt-4 tracking-wide">SIMPAN DATA</button>
-              </form>
-            </div>
-            
-            <div className="bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-slate-200 lg:col-span-2">
-              <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-5 border-b border-slate-100 pb-4">
-                <h2 className="text-lg font-black text-slate-800">Database Profil Global</h2>
-                <div className="relative w-full md:w-auto"><Search size={14} className="absolute left-3 top-2.5 text-slate-400" /><input type="text" placeholder="Cari nama karyawan..." className="pl-9 pr-3 py-1.5 border border-slate-300 rounded-lg text-sm w-full md:w-56 bg-slate-50 focus:ring-emerald-500 focus:bg-white outline-none transition-all" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}/></div>
+                
+                <div className="bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-slate-200 lg:col-span-2">
+                  <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-5 border-b border-slate-100 pb-4">
+                    <h2 className="text-lg font-black text-slate-800">Database Profil Global</h2>
+                    <div className="relative w-full md:w-auto"><Search size={14} className="absolute left-3 top-2.5 text-slate-400" /><input type="text" placeholder="Cari nama karyawan..." className="pl-9 pr-3 py-1.5 border border-slate-300 rounded-lg text-sm w-full md:w-56 bg-slate-50 focus:ring-emerald-500 focus:bg-white outline-none transition-all" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}/></div>
+                  </div>
+                  <div className="overflow-x-auto border border-slate-200 rounded-2xl shadow-inner max-h-[500px]">
+                    <table className="w-full text-left text-sm whitespace-nowrap">
+                      <thead className="bg-slate-100 text-slate-600 sticky top-0 z-10"><tr><th className="p-4 font-bold">Nama Lengkap</th><th className="p-4 text-center font-bold">Smelter</th><th className="p-4 text-center font-bold">Jabatan Aktif</th><th className="p-4 text-center font-bold">Aksi</th></tr></thead>
+                      <tbody>
+                        {searchResult.length === 0 ? (
+                          <tr><td colSpan="4" className="text-center p-10 text-slate-500 border-dashed bg-slate-50 font-medium">Karyawan tidak ditemukan.</td></tr>
+                        ) : (
+                          searchResult.map(p => {
+                            const isAreaUnknown = !safeAreas.includes(p.area);
+                            return (
+                            <tr key={p.id} className={`border-b border-slate-100 hover:bg-slate-50 transition-colors ${isAreaUnknown ? 'bg-red-50/50' : ''}`}>
+                              {editingId === p.id ? (
+                                <>
+                                  <td className="p-2"><input type="text" className="border border-slate-300 p-2 w-full text-sm rounded-lg focus:ring-emerald-500 outline-none" value={editFormData.nama} onChange={(e) => setEditFormData({...editFormData, nama: e.target.value})} /></td>
+                                  <td className="p-2 text-center"><select className="border border-slate-300 p-2 text-sm rounded-lg focus:ring-emerald-500 bg-white outline-none" value={editFormData.area} onChange={(e) => setEditFormData({...editFormData, area: e.target.value})}>{safeAreas.map(a => <option key={a} value={a}>{a}</option>)}</select></td>
+                                  <td className="p-2 text-center"><select className="border border-slate-300 p-2 text-sm rounded-lg focus:ring-emerald-500 bg-white outline-none" value={editFormData.role} onChange={(e) => setEditFormData({...editFormData, role: e.target.value})}>{safeRoles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></td>
+                                  <td className="p-2 text-center space-x-2"><button onClick={handleSaveEdit} className="text-white bg-emerald-600 px-4 py-2 rounded-lg font-bold text-xs shadow-md">Simpan</button><button onClick={() => setEditingId(null)} className="bg-slate-200 px-4 py-2 rounded-lg font-bold text-xs text-slate-700">Batal</button></td>
+                                </>
+                              ) : (
+                                <>
+                                  <td className="p-4 font-bold text-slate-700">{p.nama}</td>
+                                  <td className="p-4 text-center font-bold text-slate-500">{p.area} {isAreaUnknown && <span className="text-red-500 text-[10px] block mt-1">(Perlu Diupdate)</span>}</td>
+                                  <td className="p-4 text-center"><span className="px-3 py-1 bg-slate-200/80 rounded-lg text-xs font-bold text-slate-600 border border-slate-300">{safeRoles.find(r=>r.id===p.role)?.name || p.role}</span></td>
+                                  <td className="p-4 text-center space-x-3"><button onClick={() => handleEditClick(p)} className="text-blue-600 hover:text-blue-800 bg-blue-50 p-2 rounded-lg transition-colors"><Edit size={16}/></button><button onClick={() => setDeleteModal({ show: true, id: p.id, nama: p.nama })} className="text-red-600 hover:text-red-800 bg-red-50 p-2 rounded-lg transition-colors"><Trash2 size={16}/></button></td>
+                                </>
+                              )}
+                            </tr>
+                          )})
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
-              <div className="overflow-x-auto border border-slate-200 rounded-2xl shadow-inner max-h-[500px]">
-                <table className="w-full text-left text-sm whitespace-nowrap">
-                  <thead className="bg-slate-100 text-slate-600 sticky top-0 z-10"><tr><th className="p-4 font-bold">Nama Lengkap</th><th className="p-4 text-center font-bold">Smelter</th><th className="p-4 text-center font-bold">Jabatan Aktif</th><th className="p-4 text-center font-bold">Aksi</th></tr></thead>
-                  <tbody>
-                    {searchResult.length === 0 ? (
-                      <tr><td colSpan="4" className="text-center p-10 text-slate-500 border-dashed bg-slate-50 font-medium">Karyawan tidak ditemukan.</td></tr>
-                    ) : (
-                      searchResult.map(p => {
-                        const isAreaUnknown = !safeAreas.includes(p.area);
+            )}
+
+            {/* --- TAB INPUT NILAI KINERJA (ADMIN ONLY) --- */}
+            {activeTab === 'input' && currentUser.role === 'Admin' && (
+              <div className="bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-slate-200">
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
+                    <div className="bg-slate-50 p-5 md:p-6 rounded-3xl border border-slate-200 h-fit shadow-inner">
+                      <h2 className="font-black text-lg mb-5 border-b border-slate-200 pb-3 text-slate-800">Data Excel Generator</h2>
+                      <div className="grid grid-cols-2 gap-3 mb-5">
+                        <select className="border border-slate-300 p-3 w-full rounded-xl focus:ring-emerald-500 focus:border-emerald-500 text-sm bg-white outline-none shadow-sm font-bold text-slate-700" value={selectedWeek} onChange={(e) => setSelectedWeek(e.target.value)}>{weeks.map(w => <option key={w.id} value={w.id}>{w.label}</option>)}</select>
+                        <select className="border border-slate-300 p-3 w-full rounded-xl focus:ring-emerald-500 focus:border-emerald-500 text-sm bg-white outline-none shadow-sm font-bold text-slate-700" value={selectedIndicator} onChange={(e) => setSelectedIndicator(e.target.value)}>
+                          {getAllUniqueCategories().map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
+                        </select>
+                      </div>
+                      <div className="bg-blue-50 border border-blue-200 text-blue-800 rounded-xl p-4 text-xs mb-5 leading-relaxed shadow-sm">
+                         💡 <b>Sistem Auto-Detect:</b> Cukup *paste* barisan <b>NAMA KARYAWAN</b> saja dari Excel (Campur SO & WFSO tidak masalah). Aplikasi otomatis melacak jabatan mereka dan mengakumulasi poin secara presisi.
+                      </div>
+                      <textarea className="w-full border border-slate-300 p-4 h-48 rounded-xl text-sm font-mono focus:ring-emerald-500 focus:border-emerald-500 shadow-inner outline-none placeholder-slate-400" placeholder="Paste data kolom NAMA di sini..." value={pasteText} onChange={(e) => setPasteText(e.target.value)}></textarea>
+                      <button onClick={handleProcessPaste} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black tracking-widest py-4 mt-5 rounded-xl shadow-lg shadow-emerald-900/20 transition-all active:scale-[0.98] text-sm">PROSES DATA</button>
+                    </div>
+                    <div>
+                      <h2 className="font-black text-lg mb-5 text-slate-800 border-b border-slate-200 pb-3">Tinjauan Capaian ({safeRoles.find(r=>r.id===selectedRoleContext)?.name})</h2>
+                      {getVisibleAreas().map(area => {
+                        const areaPersonnel = getVisiblePersonnel(area);
+                        if (areaPersonnel.length === 0) return null;
+
                         return (
-                        <tr key={p.id} className={`border-b border-slate-100 hover:bg-slate-50 transition-colors ${isAreaUnknown ? 'bg-red-50/50' : ''}`}>
-                          {editingId === p.id ? (
-                            <>
-                              <td className="p-2"><input type="text" className="border border-slate-300 p-2 w-full text-sm rounded-lg focus:ring-emerald-500 outline-none" value={editFormData.nama} onChange={(e) => setEditFormData({...editFormData, nama: e.target.value})} /></td>
-                              <td className="p-2 text-center"><select className="border border-slate-300 p-2 text-sm rounded-lg focus:ring-emerald-500 bg-white outline-none" value={editFormData.area} onChange={(e) => setEditFormData({...editFormData, area: e.target.value})}>{safeAreas.map(a => <option key={a} value={a}>{a}</option>)}</select></td>
-                              <td className="p-2 text-center"><select className="border border-slate-300 p-2 text-sm rounded-lg focus:ring-emerald-500 bg-white outline-none" value={editFormData.role} onChange={(e) => setEditFormData({...editFormData, role: e.target.value})}>{safeRoles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></td>
-                              <td className="p-2 text-center space-x-2"><button onClick={handleSaveEdit} className="text-white bg-emerald-600 px-4 py-2 rounded-lg font-bold text-xs shadow-md">Simpan</button><button onClick={() => setEditingId(null)} className="bg-slate-200 px-4 py-2 rounded-lg font-bold text-xs text-slate-700">Batal</button></td>
-                            </>
-                          ) : (
-                            <>
-                              <td className="p-4 font-bold text-slate-700">{p.nama}</td>
-                              <td className="p-4 text-center font-bold text-slate-500">{p.area} {isAreaUnknown && <span className="text-red-500 text-[10px] block mt-1">(Perlu Diupdate)</span>}</td>
-                              <td className="p-4 text-center"><span className="px-3 py-1 bg-slate-200/80 rounded-lg text-xs font-bold text-slate-600 border border-slate-300">{safeRoles.find(r=>r.id===p.role)?.name || p.role}</span></td>
-                              <td className="p-4 text-center space-x-3"><button onClick={() => handleEditClick(p)} className="text-blue-600 hover:text-blue-800 bg-blue-50 p-2 rounded-lg transition-colors"><Edit size={16}/></button><button onClick={() => setDeleteModal({ show: true, id: p.id, nama: p.nama })} className="text-red-600 hover:text-red-800 bg-red-50 p-2 rounded-lg transition-colors"><Trash2 size={16}/></button></td>
-                            </>
-                          )}
-                        </tr>
-                      )})
-                    )}
-                  </tbody>
-                </table>
+                          <div key={area} className="mb-6">
+                            <div className="px-4 py-2.5 rounded-t-xl font-bold text-sm bg-slate-700 text-white shadow-sm">{area}</div>
+                            <div className="overflow-x-auto border border-slate-200 border-t-0 rounded-b-xl shadow-inner bg-white max-h-[400px]">
+                              <table className="w-full text-xs whitespace-nowrap"><thead className="bg-slate-100 border-b border-slate-200 sticky top-0"><tr><th className="p-3 text-left text-slate-600 font-bold">Nama Karyawan</th>{getActiveCategories(selectedRoleContext).map(c => <th key={c.key} className="p-3 text-center text-slate-600 font-bold">{c.label}</th>)}</tr></thead>
+                                <tbody>{areaPersonnel.map(p => {
+                                  const wData = weeklyData[p.id]?.[selectedWeek] || {};
+                                  return (
+                                    <tr key={p.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50 transition-colors">
+                                      <td className="p-3 font-bold text-slate-700">{p.nama}</td>
+                                      {getActiveCategories(selectedRoleContext).map(c => (
+                                        <td key={c.key} className="p-3 text-center text-emerald-700 font-black bg-emerald-50/30">{wData[c.key] !== undefined ? wData[c.key] : 0}</td>
+                                      ))}
+                                    </tr>
+                                  )
+                                })}</tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                 </div>
               </div>
-            </div>
-          </div>
-        )}
+            )}
 
-        {/* --- TAB INPUT NILAI KINERJA (ADMIN ONLY) --- */}
-        {activeTab === 'input' && currentUser.role === 'Admin' && (
-          <div className="bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-slate-200">
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
-                <div className="bg-slate-50 p-5 md:p-6 rounded-3xl border border-slate-200 h-fit shadow-inner">
-                  <h2 className="font-black text-lg mb-5 border-b border-slate-200 pb-3 text-slate-800">Data Excel Generator</h2>
-                  <div className="grid grid-cols-2 gap-3 mb-5">
-                    <select className="border border-slate-300 p-3 w-full rounded-xl focus:ring-emerald-500 focus:border-emerald-500 text-sm bg-white outline-none shadow-sm font-bold text-slate-700" value={selectedWeek} onChange={(e) => setSelectedWeek(e.target.value)}>{weeks.map(w => <option key={w.id} value={w.id}>{w.label}</option>)}</select>
-                    <select className="border border-slate-300 p-3 w-full rounded-xl focus:ring-emerald-500 focus:border-emerald-500 text-sm bg-white outline-none shadow-sm font-bold text-slate-700" value={selectedIndicator} onChange={(e) => setSelectedIndicator(e.target.value)}>
-                      {getAllUniqueCategories().map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
-                    </select>
-                  </div>
-                  <div className="bg-blue-50 border border-blue-200 text-blue-800 rounded-xl p-4 text-xs mb-5 leading-relaxed shadow-sm">
-                     💡 <b>Sistem Auto-Detect:</b> Cukup *paste* barisan <b>NAMA KARYAWAN</b> saja dari Excel (Campur SO & WFSO tidak masalah). Aplikasi otomatis melacak jabatan mereka dan mengakumulasi poin secara presisi.
-                  </div>
-                  <textarea className="w-full border border-slate-300 p-4 h-48 rounded-xl text-sm font-mono focus:ring-emerald-500 focus:border-emerald-500 shadow-inner outline-none placeholder-slate-400" placeholder="Paste data kolom NAMA di sini..." value={pasteText} onChange={(e) => setPasteText(e.target.value)}></textarea>
-                  <button onClick={handleProcessPaste} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black tracking-widest py-4 mt-5 rounded-xl shadow-lg shadow-emerald-900/20 transition-all active:scale-[0.98] text-sm">PROSES DATA</button>
-                </div>
-                <div>
-                  <h2 className="font-black text-lg mb-5 text-slate-800 border-b border-slate-200 pb-3">Tinjauan Capaian ({safeRoles.find(r=>r.id===selectedRoleContext)?.name})</h2>
-                  {getVisibleAreas().map(area => {
+            {/* --- TAB REKAP LAPORAN FINAL --- */}
+            {activeTab === 'laporan' && (
+              <div className="bg-white p-4 md:p-6 rounded-3xl shadow-sm border border-slate-200">
+                 <div className="mb-6 pb-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                   <h2 className="font-black text-xl md:text-2xl text-slate-800">Laporan Akhir Kinerja (KPI)</h2>
+                   
+                   {/* INDIKATOR STATUS DATA */}
+                   <div className="bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 flex items-center gap-2 w-fit">
+                     <span className="relative flex h-2.5 w-2.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span></span>
+                     <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-widest">Live Sync</span>
+                   </div>
+                 </div>
+                 
+                 {getVisibleAreas().map(area => {
                     const areaPersonnel = getVisiblePersonnel(area);
                     if (areaPersonnel.length === 0) return null;
-
+                    
                     return (
-                      <div key={area} className="mb-6">
-                        <div className="px-4 py-2.5 rounded-t-xl font-bold text-sm bg-slate-700 text-white shadow-sm">{area}</div>
-                        <div className="overflow-x-auto border border-slate-200 border-t-0 rounded-b-xl shadow-inner bg-white max-h-[400px]">
-                          <table className="w-full text-xs whitespace-nowrap"><thead className="bg-slate-100 border-b border-slate-200 sticky top-0"><tr><th className="p-3 text-left text-slate-600 font-bold">Nama Karyawan</th>{getActiveCategories(selectedRoleContext).map(c => <th key={c.key} className="p-3 text-center text-slate-600 font-bold">{c.label}</th>)}</tr></thead>
-                            <tbody>{areaPersonnel.map(p => {
-                              const wData = weeklyData[p.id]?.[selectedWeek] || {};
-                              return (
-                                <tr key={p.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50 transition-colors">
-                                  <td className="p-3 font-bold text-slate-700">{p.nama}</td>
-                                  {getActiveCategories(selectedRoleContext).map(c => (
-                                    <td key={c.key} className="p-3 text-center text-emerald-700 font-black bg-emerald-50/30">{wData[c.key] !== undefined ? wData[c.key] : 0}</td>
-                                  ))}
-                                </tr>
-                              )
-                            })}</tbody>
+                      <div key={area} className="mb-10 overflow-x-auto shadow-md rounded-2xl border border-slate-300">
+                        <div className="flex justify-between items-center text-white px-4 md:px-5 py-4 rounded-t-2xl bg-slate-800 border-b border-slate-900">
+                          <h3 className="font-black text-sm md:text-base flex items-center gap-2 tracking-wide"><Table size={18} className="text-emerald-400" /> AREA {area.toUpperCase()}</h3>
+                          <button onClick={() => exportToExcel(area, areaPersonnel)} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-lg flex items-center gap-2 shadow-sm transition-all active:scale-95"><Download size={14} /> Export Excel</button>
+                        </div>
+                        <div className="overflow-x-auto bg-white">
+                          <table className="w-full text-xs border-collapse whitespace-nowrap">
+                            <thead className="bg-slate-700 text-white">
+                              <tr>
+                                <th className="p-4 text-left font-bold tracking-wide">Profil Pegawai</th>
+                                {getActiveCategories(selectedRoleContext).map(c => <th key={c.key} className="p-3 border-l border-slate-600 text-center font-medium">{c.label}</th>)}
+                                <th className="p-3 bg-emerald-900/80 border-l border-emerald-800 text-center font-medium">Kepatuhan</th><th className="p-3 bg-slate-800 border-l border-slate-700 text-center font-medium">Pelanggaran</th><th className="p-3 bg-slate-800 border-l border-slate-700 text-center font-medium">Skor Awal</th><th className="p-3 bg-slate-800 text-center font-medium">Extra Poin</th><th className="p-3 bg-slate-800 text-center font-medium">Penalti</th><th className="p-3 bg-emerald-800 border-l border-emerald-700 text-center font-bold tracking-wider">SKOR AKHIR</th><th className="p-3 bg-emerald-700 border-l border-emerald-600 text-center font-bold tracking-wider">NILAI KASTA</th><th className="p-3 bg-slate-800 text-center border-l border-slate-700">Catatan Khusus</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {areaPersonnel.map(p => {
+                                const acc = getAccumulatedData(p.id, p.role);
+                                const um = monthlyData[p.id] || { kepatuhan: 75, pelanggaran: 0, keterangan: '' };
+                                const calc = calculateScore(acc, um, p.role);
+
+                                return (
+                                  <tr key={p.id} className="border-b border-slate-200 hover:bg-slate-50 transition-colors">
+                                    <td className="p-4">
+                                      <span className="font-bold text-slate-800 text-sm block mb-1">{p.nama}</span> 
+                                      <span className="bg-slate-200 text-slate-600 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider">{p.area}</span>
+                                    </td>
+                                    {getActiveCategories(selectedRoleContext).map(c => <td key={c.key} className="p-3 text-center border-l border-slate-200 font-bold text-slate-600">{acc[c.key]||0}</td>)}
+                                    
+                                    <td className="p-2 text-center border-l border-slate-200 bg-emerald-50/50">
+                                      <select disabled={currentUser.role !== 'Admin'} className="border border-emerald-200 p-2 rounded-lg w-16 focus:ring-emerald-500 text-center bg-white font-black text-emerald-800 shadow-inner outline-none cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed" value={um.kepatuhan || 75} onChange={e=>handleMonthlyInput(p.id, 'kepatuhan', e.target.value)}><option value="25">25</option><option value="50">50</option><option value="75">75</option></select>
+                                    </td>
+                                    <td className="p-2 text-center bg-red-50/50 border-l border-slate-200">
+                                      <input type="number" disabled={currentUser.role !== 'Admin'} className="w-16 border border-red-200 p-2 rounded-lg text-center focus:ring-red-500 bg-white font-black text-red-800 shadow-inner outline-none disabled:opacity-70 disabled:cursor-not-allowed" value={um.pelanggaran || 0} onChange={e=>handleMonthlyInput(p.id, 'pelanggaran', e.target.value)}/>
+                                    </td>
+                                    
+                                    <td className="p-3 text-center border-l border-slate-200 bg-slate-50 font-bold text-slate-700">{calc.sAwal.toFixed(1)}</td>
+                                    <td className="p-3 text-center bg-slate-50 font-black text-emerald-600">+{calc.tPoin}</td>
+                                    <td className="p-3 text-center font-black text-red-600 bg-red-50/30">{calc.penalti}</td>
+                                    <td className="p-3 text-center font-black text-lg text-emerald-900 bg-emerald-100/50 border-l border-emerald-200">{calc.sAkhir.toFixed(1)}</td>
+                                    <td className="p-3 text-center border-l border-emerald-200 bg-emerald-50/50"><span className={`px-4 py-2 rounded-lg text-white font-black tracking-widest shadow-sm text-sm border ${calc.grade==='A'?'bg-green-500 border-green-600':calc.grade==='B'?'bg-lime-500 border-lime-600':calc.grade==='C'?'bg-yellow-500 border-yellow-600':'bg-red-500 border-red-600'}`}>{calc.grade}</span></td>
+                                    
+                                    <td className="p-2 bg-slate-50 border-l border-slate-200">
+                                      <input type="text" disabled={currentUser.role !== 'Admin'} className="w-28 md:w-36 border border-slate-300 p-2 text-xs rounded-lg focus:ring-emerald-500 bg-white placeholder-slate-400 outline-none shadow-inner disabled:opacity-70 disabled:cursor-not-allowed" placeholder="Misal: Cuti" value={um.keterangan || ''} onChange={e=>handleMonthlyInput(p.id, 'keterangan', e.target.value)}/>
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
                           </table>
                         </div>
                       </div>
                     )
-                  })}
-                </div>
-             </div>
-          </div>
-        )}
+                 })}
+              </div>
+            )}
 
-        {/* --- TAB REKAP LAPORAN FINAL --- */}
-        {activeTab === 'laporan' && (
-          <div className="bg-white p-4 md:p-6 rounded-3xl shadow-sm border border-slate-200">
-             <div className="mb-6 pb-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
-               <h2 className="font-black text-xl md:text-2xl text-slate-800">Laporan Akhir Kinerja (KPI)</h2>
-               <div className="bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 flex items-center gap-2 w-fit">
-                 <span className="relative flex h-2.5 w-2.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span></span>
-                 <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-widest">Live Sync</span>
-               </div>
-             </div>
-             
-             {getVisibleAreas().map(area => {
-                const areaPersonnel = getVisiblePersonnel(area);
-                if (areaPersonnel.length === 0) return null;
-                
-                return (
-                  <div key={area} className="mb-10 overflow-x-auto shadow-md rounded-2xl border border-slate-300">
-                    <div className="flex justify-between items-center text-white px-4 md:px-5 py-4 rounded-t-2xl bg-slate-800 border-b border-slate-900">
-                      <h3 className="font-black text-sm md:text-base flex items-center gap-2 tracking-wide"><Table size={18} className="text-emerald-400" /> AREA {area.toUpperCase()}</h3>
-                      <button onClick={() => exportToExcel(area, areaPersonnel)} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-lg flex items-center gap-2 shadow-sm transition-all active:scale-95"><Download size={14} /> Export Excel</button>
+            {/* --- TAB PENGATURAN SUB-TABS (ONLY ADMIN) --- */}
+            {activeTab === 'pengaturan' && currentUser.role === 'Admin' && (
+              <div className="bg-slate-800 p-5 md:p-8 rounded-3xl shadow-2xl border border-slate-700 text-slate-200">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                  <div>
+                    <h2 className="font-black text-2xl text-white flex items-center gap-2 tracking-wide"><Settings /> Control Panel</h2>
+                    <p className="text-sm text-slate-400 mt-1.5">Kelola data master, indikator, dan perizinan sistem.</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-2 border-b border-slate-700 pb-4 mb-6 overflow-x-auto [&::-webkit-scrollbar]:hidden">
+                  <button onClick={() => setActiveSettingTab('akun')} className={`px-5 py-3 text-sm font-bold rounded-xl whitespace-nowrap transition-all shadow-sm ${activeSettingTab === 'akun' ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-400 hover:bg-slate-700 border border-slate-700'}`}>Akses Login User</button>
+                  <button onClick={() => setActiveSettingTab('smelter')} className={`px-5 py-3 text-sm font-bold rounded-xl whitespace-nowrap transition-all shadow-sm ${activeSettingTab === 'smelter' ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-400 hover:bg-slate-700 border border-slate-700'}`}>Manajemen Area</button>
+                  <button onClick={() => setActiveSettingTab('kpi')} className={`px-5 py-3 text-sm font-bold rounded-xl whitespace-nowrap transition-all shadow-sm ${activeSettingTab === 'kpi' ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-400 hover:bg-slate-700 border border-slate-700'}`}>Indikator & Target KPI</button>
+                </div>
+
+                {/* SUB-TAB 1: MANAJEMEN AKSES LOGIN KARYAWAN */}
+                {activeSettingTab === 'akun' && (
+                  <div className="bg-slate-900 p-5 md:p-8 rounded-3xl border border-slate-700 shadow-inner relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 rounded-full blur-3xl"></div>
+                    <div className="flex flex-col md:flex-row justify-between md:items-end gap-4 mb-6 border-b border-slate-700 pb-5 relative z-10">
+                      <div>
+                        <h3 className="font-black text-white text-lg flex items-center gap-2 mb-1.5"><Shield size={22} className="text-emerald-400"/> Database Kredensial User</h3>
+                        <p className="text-xs text-slate-400">Pusat keamanan untuk mengatur ulang (*reset*) Username dan Password staf lapangan.</p>
+                      </div>
+                      <div className="relative w-full md:w-72">
+                        <Search size={16} className="absolute left-4 top-3 text-slate-400" />
+                        <input type="text" placeholder="Cari profil karyawan..." className="pl-11 pr-4 py-2.5 bg-slate-800 border border-slate-600 rounded-xl text-sm text-white focus:ring-emerald-500 focus:border-emerald-500 w-full outline-none transition-all shadow-inner" value={credSearchQuery} onChange={e => setCredSearchQuery(e.target.value)} />
+                      </div>
                     </div>
-                    <div className="overflow-x-auto bg-white">
-                      <table className="w-full text-xs border-collapse whitespace-nowrap">
-                        <thead className="bg-slate-700 text-white">
-                          <tr>
-                            <th className="p-4 text-left font-bold tracking-wide">Profil Pegawai</th>
-                            {getActiveCategories(selectedRoleContext).map(c => <th key={c.key} className="p-3 border-l border-slate-600 text-center font-medium">{c.label}</th>)}
-                            <th className="p-3 bg-emerald-900/80 border-l border-emerald-800 text-center font-medium">Kepatuhan</th><th className="p-3 bg-slate-800 border-l border-slate-700 text-center font-medium">Pelanggaran</th><th className="p-3 bg-slate-800 border-l border-slate-700 text-center font-medium">Skor Awal</th><th className="p-3 bg-slate-800 text-center font-medium">Extra Poin</th><th className="p-3 bg-slate-800 text-center font-medium">Penalti</th><th className="p-3 bg-emerald-800 border-l border-emerald-700 text-center font-bold tracking-wider">SKOR AKHIR</th><th className="p-3 bg-emerald-700 border-l border-emerald-600 text-center font-bold tracking-wider">NILAI KASTA</th><th className="p-3 bg-slate-800 text-center border-l border-slate-700">Catatan Khusus</th>
-                          </tr>
+                    <div className="overflow-x-auto border border-slate-700 rounded-2xl shadow-lg relative z-10 bg-slate-800/50 max-h-[450px]">
+                      <table className="w-full text-left text-sm text-slate-300 whitespace-nowrap">
+                        <thead className="bg-slate-800 text-slate-200 sticky top-0 shadow-sm z-20">
+                          <tr><th className="p-4 border-b border-slate-700 font-bold">Profil Pegawai</th><th className="p-4 border-b border-slate-700 text-center font-bold">ID (Username)</th><th className="p-4 border-b border-slate-700 text-center font-bold">Password Sistem</th><th className="p-4 border-b border-slate-700 text-center font-bold">Tindakan Keamanan</th></tr>
                         </thead>
                         <tbody>
-                          {areaPersonnel.map(p => {
-                            const acc = getAccumulatedData(p.id, p.role);
-                            const um = monthlyData[p.id] || { kepatuhan: 75, pelanggaran: 0, keterangan: '' };
-                            const calc = calculateScore(acc, um, p.role);
-
-                            return (
-                              <tr key={p.id} className="border-b border-slate-200 hover:bg-slate-50 transition-colors">
+                          {credSearchResult.length === 0 ? (
+                            <tr><td colSpan="4" className="p-12 text-center text-slate-500 italic">Data profil tidak ditemukan di server.</td></tr>
+                          ) : (
+                            credSearchResult.map(p => (
+                              <tr key={p.id} className="border-b border-slate-700/50 hover:bg-slate-700/40 transition-colors">
                                 <td className="p-4">
-                                  <span className="font-bold text-slate-800 text-sm block mb-1">{p.nama}</span> 
-                                  <span className="bg-slate-200 text-slate-600 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider">{p.area}</span>
+                                  <span className="font-bold text-white text-base block">{p.nama}</span> 
+                                  <span className="inline-block mt-1.5 text-[9px] font-bold px-2 py-0.5 rounded bg-slate-700 text-emerald-400 uppercase tracking-widest border border-slate-600">{p.area} • {safeRoles.find(r=>r.id===p.role)?.name || p.role}</span>
                                 </td>
-                                {getActiveCategories(selectedRoleContext).map(c => <td key={c.key} className="p-3 text-center border-l border-slate-200 font-bold text-slate-600">{acc[c.key]||0}</td>)}
-                                
-                                <td className="p-2 text-center border-l border-slate-200 bg-emerald-50/50">
-                                  <select disabled={currentUser.role !== 'Admin'} className="border border-emerald-200 p-2 rounded-lg w-16 focus:ring-emerald-500 text-center bg-white font-black text-emerald-800 shadow-inner outline-none cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed" value={um.kepatuhan || 75} onChange={e=>handleMonthlyInput(p.id, 'kepatuhan', e.target.value)}><option value="25">25</option><option value="50">50</option><option value="75">75</option></select>
-                                </td>
-                                <td className="p-2 text-center bg-red-50/50 border-l border-slate-200">
-                                  <input type="number" disabled={currentUser.role !== 'Admin'} className="w-16 border border-red-200 p-2 rounded-lg text-center focus:ring-red-500 bg-white font-black text-red-800 shadow-inner outline-none disabled:opacity-70 disabled:cursor-not-allowed" value={um.pelanggaran || 0} onChange={e=>handleMonthlyInput(p.id, 'pelanggaran', e.target.value)}/>
-                                </td>
-                                
-                                <td className="p-3 text-center border-l border-slate-200 bg-slate-50 font-bold text-slate-700">{calc.sAwal.toFixed(1)}</td>
-                                <td className="p-3 text-center bg-slate-50 font-black text-emerald-600">+{calc.tPoin}</td>
-                                <td className="p-3 text-center font-black text-red-600 bg-red-50/30">{calc.penalti}</td>
-                                <td className="p-3 text-center font-black text-lg text-emerald-900 bg-emerald-100/50 border-l border-emerald-200">{calc.sAkhir.toFixed(1)}</td>
-                                <td className="p-3 text-center border-l border-emerald-200 bg-emerald-50/50"><span className={`px-4 py-2 rounded-lg text-white font-black tracking-widest shadow-sm text-sm border ${calc.grade==='A'?'bg-green-500 border-green-600':calc.grade==='B'?'bg-lime-500 border-lime-600':calc.grade==='C'?'bg-yellow-500 border-yellow-600':'bg-red-500 border-red-600'}`}>{calc.grade}</span></td>
-                                
-                                <td className="p-2 bg-slate-50 border-l border-slate-200">
-                                  <input type="text" disabled={currentUser.role !== 'Admin'} className="w-28 md:w-36 border border-slate-300 p-2 text-xs rounded-lg focus:ring-emerald-500 bg-white placeholder-slate-400 outline-none shadow-inner disabled:opacity-70 disabled:cursor-not-allowed" placeholder="Misal: Cuti" value={um.keterangan || ''} onChange={e=>handleMonthlyInput(p.id, 'keterangan', e.target.value)}/>
-                                </td>
+                                {editingCredId === p.id ? (
+                                  <>
+                                    <td className="p-3 align-middle"><div className="flex justify-center"><input type="text" placeholder="Ketik Username Baru" className="bg-slate-950 border border-emerald-500/50 rounded-xl p-3 w-full md:w-4/5 text-white text-sm font-mono focus:ring-emerald-500 outline-none text-center shadow-inner" value={credFormData.idKaryawan} onChange={(e) => setCredFormData({...credFormData, idKaryawan: e.target.value})} /></div></td>
+                                    <td className="p-3 align-middle"><div className="flex justify-center"><input type="text" placeholder="Ketik Password Baru" className="bg-slate-950 border border-emerald-500/50 rounded-xl p-3 w-full md:w-4/5 text-white text-sm focus:ring-emerald-500 outline-none text-center shadow-inner" value={credFormData.password} onChange={(e) => setCredFormData({...credFormData, password: e.target.value})} /></div></td>
+                                    <td className="p-3 text-center align-middle space-x-2"><button onClick={handleSaveCred} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-xl font-bold text-xs shadow-lg transition-transform active:scale-95">Simpan</button><button onClick={() => setEditingCredId(null)} className="bg-slate-600 hover:bg-slate-500 text-white px-4 py-2.5 rounded-xl font-bold text-xs transition-colors">Batal</button></td>
+                                  </>
+                                ) : (
+                                  <>
+                                    <td className="p-4 text-center align-middle">{p.idKaryawan ? <span className="text-emerald-300 font-mono tracking-wider bg-emerald-900/30 px-3.5 py-2 rounded-lg border border-emerald-800/50 select-all shadow-inner">{p.idKaryawan}</span> : <span className="text-slate-500 italic text-xs bg-slate-800 px-3 py-1.5 rounded-full border border-slate-700">Belum di-set</span>}</td>
+                                    <td className="p-4 text-center align-middle">{p.password ? <span className="text-slate-300 font-mono bg-slate-900/50 px-3.5 py-2 rounded-lg border border-slate-700 select-all shadow-inner">{p.password}</span> : <span className="text-slate-500 italic text-xs bg-slate-800 px-3 py-1.5 rounded-full border border-slate-700">Belum di-set</span>}</td>
+                                    <td className="p-4 text-center align-middle"><button onClick={() => handleEditCredClick(p)} className="text-emerald-400 hover:text-white hover:bg-emerald-600 flex items-center justify-center gap-1.5 mx-auto text-xs font-bold bg-slate-800 border border-slate-600 px-4 py-2.5 rounded-xl transition-all shadow-sm w-32"><Edit size={14}/> Ubah Akses</button></td>
+                                  </>
+                                )}
                               </tr>
-                            )
-                          })}
+                            ))
+                          )}
                         </tbody>
                       </table>
                     </div>
                   </div>
-                )
-             })}
-          </div>
-        )}
+                )}
 
-        {/* --- TAB PENGATURAN SUB-TABS (ONLY ADMIN) --- */}
-        {activeTab === 'pengaturan' && currentUser.role === 'Admin' && (
-          <div className="bg-slate-800 p-5 md:p-8 rounded-3xl shadow-2xl border border-slate-700 text-slate-200">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-              <div>
-                <h2 className="font-black text-2xl text-white flex items-center gap-2 tracking-wide"><Settings /> Control Panel</h2>
-                <p className="text-sm text-slate-400 mt-1.5">Kelola data master, indikator, dan perizinan sistem.</p>
-              </div>
-            </div>
-
-            <div className="flex gap-2 border-b border-slate-700 pb-4 mb-6 overflow-x-auto [&::-webkit-scrollbar]:hidden">
-              <button onClick={() => setActiveSettingTab('akun')} className={`px-5 py-3 text-sm font-bold rounded-xl whitespace-nowrap transition-all shadow-sm ${activeSettingTab === 'akun' ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-400 hover:bg-slate-700 border border-slate-700'}`}>Akses Login User</button>
-              <button onClick={() => setActiveSettingTab('smelter')} className={`px-5 py-3 text-sm font-bold rounded-xl whitespace-nowrap transition-all shadow-sm ${activeSettingTab === 'smelter' ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-400 hover:bg-slate-700 border border-slate-700'}`}>Manajemen Area</button>
-              <button onClick={() => setActiveSettingTab('kpi')} className={`px-5 py-3 text-sm font-bold rounded-xl whitespace-nowrap transition-all shadow-sm ${activeSettingTab === 'kpi' ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-400 hover:bg-slate-700 border border-slate-700'}`}>Indikator & Target KPI</button>
-            </div>
-
-            {/* SUB-TAB 1: MANAJEMEN AKSES LOGIN KARYAWAN */}
-            {activeSettingTab === 'akun' && (
-              <div className="bg-slate-900 p-5 md:p-8 rounded-3xl border border-slate-700 shadow-inner relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 rounded-full blur-3xl"></div>
-                <div className="flex flex-col md:flex-row justify-between md:items-end gap-4 mb-6 border-b border-slate-700 pb-5 relative z-10">
-                  <div>
-                    <h3 className="font-black text-white text-lg flex items-center gap-2 mb-1.5"><Shield size={22} className="text-emerald-400"/> Database Kredensial User</h3>
-                    <p className="text-xs text-slate-400">Pusat keamanan untuk mengatur ulang (*reset*) Username dan Password staf lapangan.</p>
-                  </div>
-                  <div className="relative w-full md:w-72">
-                    <Search size={16} className="absolute left-4 top-3 text-slate-400" />
-                    <input type="text" placeholder="Cari profil karyawan..." className="pl-11 pr-4 py-2.5 bg-slate-800 border border-slate-600 rounded-xl text-sm text-white focus:ring-emerald-500 focus:border-emerald-500 w-full outline-none transition-all shadow-inner" value={credSearchQuery} onChange={e => setCredSearchQuery(e.target.value)} />
-                  </div>
-                </div>
-                <div className="overflow-x-auto border border-slate-700 rounded-2xl shadow-lg relative z-10 bg-slate-800/50 max-h-[450px]">
-                  <table className="w-full text-left text-sm text-slate-300 whitespace-nowrap">
-                    <thead className="bg-slate-800 text-slate-200 sticky top-0 shadow-sm z-20">
-                      <tr><th className="p-4 border-b border-slate-700 font-bold">Profil Pegawai</th><th className="p-4 border-b border-slate-700 text-center font-bold">ID (Username)</th><th className="p-4 border-b border-slate-700 text-center font-bold">Password Sistem</th><th className="p-4 border-b border-slate-700 text-center font-bold">Tindakan Keamanan</th></tr>
-                    </thead>
-                    <tbody>
-                      {credSearchResult.length === 0 ? (
-                        <tr><td colSpan="4" className="p-12 text-center text-slate-500 italic">Data profil tidak ditemukan di server.</td></tr>
-                      ) : (
-                        credSearchResult.map(p => (
-                          <tr key={p.id} className="border-b border-slate-700/50 hover:bg-slate-700/40 transition-colors">
-                            <td className="p-4">
-                              <span className="font-bold text-white text-base block">{p.nama}</span> 
-                              <span className="inline-block mt-1.5 text-[9px] font-bold px-2 py-0.5 rounded bg-slate-700 text-emerald-400 uppercase tracking-widest border border-slate-600">{p.area} • {safeRoles.find(r=>r.id===p.role)?.name || p.role}</span>
-                            </td>
-                            {editingCredId === p.id ? (
-                              <>
-                                <td className="p-3 align-middle"><div className="flex justify-center"><input type="text" placeholder="Ketik Username Baru" className="bg-slate-950 border border-emerald-500/50 rounded-xl p-3 w-full md:w-4/5 text-white text-sm font-mono focus:ring-emerald-500 outline-none text-center shadow-inner" value={credFormData.idKaryawan} onChange={(e) => setCredFormData({...credFormData, idKaryawan: e.target.value})} /></div></td>
-                                <td className="p-3 align-middle"><div className="flex justify-center"><input type="text" placeholder="Ketik Password Baru" className="bg-slate-950 border border-emerald-500/50 rounded-xl p-3 w-full md:w-4/5 text-white text-sm focus:ring-emerald-500 outline-none text-center shadow-inner" value={credFormData.password} onChange={(e) => setCredFormData({...credFormData, password: e.target.value})} /></div></td>
-                                <td className="p-3 text-center align-middle space-x-2"><button onClick={handleSaveCred} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-xl font-bold text-xs shadow-lg transition-transform active:scale-95">Simpan</button><button onClick={() => setEditingCredId(null)} className="bg-slate-600 hover:bg-slate-500 text-white px-4 py-2.5 rounded-xl font-bold text-xs transition-colors">Batal</button></td>
-                              </>
-                            ) : (
-                              <>
-                                <td className="p-4 text-center align-middle">{p.idKaryawan ? <span className="text-emerald-300 font-mono tracking-wider bg-emerald-900/30 px-3.5 py-2 rounded-lg border border-emerald-800/50 select-all shadow-inner">{p.idKaryawan}</span> : <span className="text-slate-500 italic text-xs bg-slate-800 px-3 py-1.5 rounded-full border border-slate-700">Belum di-set</span>}</td>
-                                <td className="p-4 text-center align-middle">{p.password ? <span className="text-slate-300 font-mono bg-slate-900/50 px-3.5 py-2 rounded-lg border border-slate-700 select-all shadow-inner">{p.password}</span> : <span className="text-slate-500 italic text-xs bg-slate-800 px-3 py-1.5 rounded-full border border-slate-700">Belum di-set</span>}</td>
-                                <td className="p-4 text-center align-middle"><button onClick={() => handleEditCredClick(p)} className="text-emerald-400 hover:text-white hover:bg-emerald-600 flex items-center justify-center gap-1.5 mx-auto text-xs font-bold bg-slate-800 border border-slate-600 px-4 py-2.5 rounded-xl transition-all shadow-sm w-32"><Edit size={14}/> Ubah Akses</button></td>
-                              </>
-                            )}
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* SUB-TAB 2: MANAJEMEN SMELTER */}
-            {activeSettingTab === 'smelter' && (
-              <div className="bg-slate-900 p-5 md:p-8 rounded-3xl border border-slate-700 shadow-inner">
-                <h3 className="font-bold text-white mb-5 flex items-center gap-2 text-sm uppercase tracking-widest text-emerald-400">Database Area / Smelter</h3>
-                <div className="flex flex-col md:flex-row gap-3 mb-8">
-                  <input type="text" placeholder="Tambahkan nama smelter/area baru..." className="flex-1 bg-slate-800 border border-slate-600 rounded-xl p-3.5 text-sm text-white focus:ring-emerald-500 outline-none shadow-inner" value={newArea} onChange={e=>setNewArea(e.target.value)} />
-                  <button onClick={handleAddArea} className="bg-emerald-600 hover:bg-emerald-500 px-8 py-3.5 md:py-0 rounded-xl text-white font-bold text-sm shadow-lg transition-all active:scale-95">Tambahkan</button>
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  {safeAreas.map(area => (
-                    <div key={area} className="bg-slate-800 px-4 py-2.5 rounded-xl flex items-center gap-3 text-sm font-bold text-emerald-300 border border-slate-600 shadow-sm">
-                      {area} <button onClick={() => handleDeleteArea(area)} className="text-slate-400 hover:text-white bg-slate-900 hover:bg-red-500 p-1.5 rounded-lg transition-colors border border-slate-700"><Trash2 size={14}/></button>
+                {/* SUB-TAB 2: MANAJEMEN SMELTER */}
+                {activeSettingTab === 'smelter' && (
+                  <div className="bg-slate-900 p-5 md:p-8 rounded-3xl border border-slate-700 shadow-inner">
+                    <h3 className="font-bold text-white mb-5 flex items-center gap-2 text-sm uppercase tracking-widest text-emerald-400">Database Area / Smelter</h3>
+                    <div className="flex flex-col md:flex-row gap-3 mb-8">
+                      <input type="text" placeholder="Tambahkan nama smelter/area baru..." className="flex-1 bg-slate-800 border border-slate-600 rounded-xl p-3.5 text-sm text-white focus:ring-emerald-500 outline-none shadow-inner" value={newArea} onChange={e=>setNewArea(e.target.value)} />
+                      <button onClick={handleAddArea} className="bg-emerald-600 hover:bg-emerald-500 px-8 py-3.5 md:py-0 rounded-xl text-white font-bold text-sm shadow-lg transition-all active:scale-95">Tambahkan</button>
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
+                    <div className="flex flex-wrap gap-3">
+                      {safeAreas.map(area => (
+                        <div key={area} className="bg-slate-800 px-4 py-2.5 rounded-xl flex items-center gap-3 text-sm font-bold text-emerald-300 border border-slate-600 shadow-sm">
+                          {area} <button onClick={() => handleDeleteArea(area)} className="text-slate-400 hover:text-white bg-slate-900 hover:bg-red-500 p-1.5 rounded-lg transition-colors border border-slate-700"><Trash2 size={14}/></button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
-            {/* SUB-TAB 3: MANAJEMEN INDIKATOR & TARGET KPI */}
-            {activeSettingTab === 'kpi' && (
-              <div className="bg-slate-900 p-5 md:p-8 rounded-3xl border border-slate-700 shadow-inner">
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
-                  {safeRoles.filter(r => r.id === 'SO' || r.id === 'WFSO').map(r => (
-                    <div key={r.id} className="bg-slate-800 p-5 rounded-3xl border border-slate-600 shadow-sm">
-                      <h4 className="font-black text-emerald-400 mb-5 border-b border-slate-700 pb-3 flex items-center gap-2 uppercase tracking-wide"><span>Rules {r.name}</span></h4>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm mb-2 whitespace-nowrap">
-                          <thead><tr className="text-slate-400 border-b border-slate-700"><th className="pb-3 px-1 font-bold">Parameter Penilaian</th><th className="pb-3 text-center px-1 font-bold">Kategori</th><th className="pb-3 text-center px-1 font-bold">Target</th><th className="pb-3 text-center px-1 font-bold">Hapus</th></tr></thead>
-                          <tbody>
-                            {masterData.categories?.[r.id]?.map((cat, index) => (
-                              <tr key={cat.key} className="border-b border-slate-700/50 last:border-0">
-                                <td className="py-3 pr-2"><input type="text" className="bg-slate-900 border border-slate-600 rounded-xl p-2.5 w-full text-white text-xs focus:ring-emerald-500 outline-none" value={cat.label} onChange={(e) => handleUpdateCategory(r.id, index, 'label', e.target.value)} /></td>
-                                <td className="py-3 px-2 text-center">
-                                  <select className="bg-slate-900 border border-slate-600 rounded-xl p-2.5 text-white text-xs focus:ring-emerald-500 outline-none" value={cat.isTargeted} onChange={(e) => handleUpdateCategory(r.id, index, 'isTargeted', e.target.value === 'true')}>
-                                    <option value="true">Utama</option><option value="false">Ekstra</option>
-                                  </select>
-                                </td>
-                                <td className="py-3 px-2 text-center"><input type="number" disabled={!cat.isTargeted} className={`w-16 bg-slate-900 border border-slate-600 rounded-xl p-2.5 text-center text-xs font-bold text-white focus:ring-emerald-500 outline-none ${!cat.isTargeted && 'opacity-30'}`} value={cat.target} onChange={(e) => handleUpdateCategory(r.id, index, 'target', e.target.value)} /></td>
-                                <td className="py-3 pl-2 text-center"><button onClick={() => handleDeleteCategory(r.id, index)} className="text-slate-400 hover:text-white hover:bg-red-500 p-2.5 bg-slate-700 border border-slate-600 rounded-xl transition-colors shadow-sm"><Trash2 size={16}/></button></td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                {/* SUB-TAB 3: MANAJEMEN INDIKATOR & TARGET KPI */}
+                {activeSettingTab === 'kpi' && (
+                  <div className="bg-slate-900 p-5 md:p-8 rounded-3xl border border-slate-700 shadow-inner">
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
+                      {safeRoles.filter(r => r.id === 'SO' || r.id === 'WFSO').map(r => (
+                        <div key={r.id} className="bg-slate-800 p-5 rounded-3xl border border-slate-600 shadow-sm">
+                          <h4 className="font-black text-emerald-400 mb-5 border-b border-slate-700 pb-3 flex items-center gap-2 uppercase tracking-wide"><span>Rules {r.name}</span></h4>
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left text-sm mb-2 whitespace-nowrap">
+                              <thead><tr className="text-slate-400 border-b border-slate-700"><th className="pb-3 px-1 font-bold">Parameter Penilaian</th><th className="pb-3 text-center px-1 font-bold">Kategori</th><th className="pb-3 text-center px-1 font-bold">Target</th><th className="pb-3 text-center px-1 font-bold">Hapus</th></tr></thead>
+                              <tbody>
+                                {masterData.categories?.[r.id]?.map((cat, index) => (
+                                  <tr key={cat.key} className="border-b border-slate-700/50 last:border-0">
+                                    <td className="py-3 pr-2"><input type="text" className="bg-slate-900 border border-slate-600 rounded-xl p-2.5 w-full text-white text-xs focus:ring-emerald-500 outline-none" value={cat.label} onChange={(e) => handleUpdateCategory(r.id, index, 'label', e.target.value)} /></td>
+                                    <td className="py-3 px-2 text-center">
+                                      <select className="bg-slate-900 border border-slate-600 rounded-xl p-2.5 text-white text-xs focus:ring-emerald-500 outline-none" value={cat.isTargeted} onChange={(e) => handleUpdateCategory(r.id, index, 'isTargeted', e.target.value === 'true')}>
+                                        <option value="true">Utama</option><option value="false">Ekstra</option>
+                                      </select>
+                                    </td>
+                                    <td className="py-3 px-2 text-center"><input type="number" disabled={!cat.isTargeted} className={`w-16 bg-slate-900 border border-slate-600 rounded-xl p-2.5 text-center text-xs font-bold text-white focus:ring-emerald-500 outline-none ${!cat.isTargeted && 'opacity-30'}`} value={cat.target} onChange={(e) => handleUpdateCategory(r.id, index, 'target', e.target.value)} /></td>
+                                    <td className="py-3 pl-2 text-center"><button onClick={() => handleDeleteCategory(r.id, index)} className="text-slate-400 hover:text-white hover:bg-red-500 p-2.5 bg-slate-700 border border-slate-600 rounded-xl transition-colors shadow-sm"><Trash2 size={16}/></button></td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="bg-emerald-950/30 p-5 md:p-6 rounded-3xl border border-emerald-800/50 shadow-lg">
+                      <h4 className="font-black text-emerald-400 mb-5 text-sm flex items-center gap-2 uppercase tracking-widest"><Plus size={18} /> Daftarkan Parameter Baru</h4>
+                      <div className="flex flex-col md:flex-row gap-3 items-start md:items-end">
+                        <div className="w-full md:flex-1"><label className="block text-[10px] text-emerald-200/70 font-bold uppercase mb-2 tracking-wider">Jabatan</label>
+                          <select className="w-full bg-slate-800 border border-emerald-800/50 rounded-xl p-3 text-white text-sm focus:ring-emerald-500 outline-none shadow-inner" value={newCatRole} onChange={e=>setNewCatRole(e.target.value)}>{safeRoles.filter(r => r.id === 'SO' || r.id === 'WFSO').map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select>
+                        </div>
+                        <div className="w-full md:flex-1"><label className="block text-[10px] text-emerald-200/70 font-bold uppercase mb-2 tracking-wider">Nama Indikator / Kriteria</label><input type="text" placeholder="Misal: Laporan Harian" className="w-full bg-slate-800 border border-emerald-800/50 rounded-xl p-3 text-white text-sm focus:ring-emerald-500 outline-none shadow-inner" value={newCatLabel} onChange={e=>setNewCatLabel(e.target.value)} /></div>
+                        <div className="w-full md:w-32"><label className="block text-[10px] text-emerald-200/70 font-bold uppercase mb-2 tracking-wider">Tipe Aturan</label>
+                          <select className="w-full bg-slate-800 border border-emerald-800/50 rounded-xl p-3 text-white text-sm focus:ring-emerald-500 outline-none shadow-inner" value={newCatType} onChange={e=>setNewCatType(e.target.value)}><option value="target">Utama</option><option value="extra">Ekstra Poin</option></select>
+                        </div>
+                        {newCatType === 'target' && (
+                          <div className="w-full md:w-24"><label className="block text-[10px] text-emerald-200/70 font-bold uppercase mb-2 tracking-wider">Target</label><input type="number" className="w-full bg-slate-800 border border-emerald-800/50 rounded-xl p-3 text-white text-sm font-bold focus:ring-emerald-500 outline-none shadow-inner text-center" value={newCatTarget} onChange={e=>setNewCatTarget(e.target.value)} /></div>
+                        )}
+                        <button onClick={handleAddCategory} className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-500 px-8 py-3.5 md:py-3 rounded-xl text-white font-bold text-sm shadow-lg transition-all active:scale-95 mt-2 md:mt-0 tracking-wide border border-emerald-500">SIMPAN</button>
                       </div>
                     </div>
-                  ))}
-                </div>
-
-                <div className="bg-emerald-950/30 p-5 md:p-6 rounded-3xl border border-emerald-800/50 shadow-lg">
-                  <h4 className="font-black text-emerald-400 mb-5 text-sm flex items-center gap-2 uppercase tracking-widest"><Plus size={18} /> Daftarkan Parameter Baru</h4>
-                  <div className="flex flex-col md:flex-row gap-3 items-start md:items-end">
-                    <div className="w-full md:flex-1"><label className="block text-[10px] text-emerald-200/70 font-bold uppercase mb-2 tracking-wider">Jabatan</label>
-                      <select className="w-full bg-slate-800 border border-emerald-800/50 rounded-xl p-3 text-white text-sm focus:ring-emerald-500 outline-none shadow-inner" value={newCatRole} onChange={e=>setNewCatRole(e.target.value)}>{safeRoles.filter(r => r.id === 'SO' || r.id === 'WFSO').map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select>
-                    </div>
-                    <div className="w-full md:flex-1"><label className="block text-[10px] text-emerald-200/70 font-bold uppercase mb-2 tracking-wider">Nama Indikator / Kriteria</label><input type="text" placeholder="Misal: Laporan Harian" className="w-full bg-slate-800 border border-emerald-800/50 rounded-xl p-3 text-white text-sm focus:ring-emerald-500 outline-none shadow-inner" value={newCatLabel} onChange={e=>setNewCatLabel(e.target.value)} /></div>
-                    <div className="w-full md:w-32"><label className="block text-[10px] text-emerald-200/70 font-bold uppercase mb-2 tracking-wider">Tipe Aturan</label>
-                      <select className="w-full bg-slate-800 border border-emerald-800/50 rounded-xl p-3 text-white text-sm focus:ring-emerald-500 outline-none shadow-inner" value={newCatType} onChange={e=>setNewCatType(e.target.value)}><option value="target">Utama</option><option value="extra">Ekstra Poin</option></select>
-                    </div>
-                    {newCatType === 'target' && (
-                      <div className="w-full md:w-24"><label className="block text-[10px] text-emerald-200/70 font-bold uppercase mb-2 tracking-wider">Target</label><input type="number" className="w-full bg-slate-800 border border-emerald-800/50 rounded-xl p-3 text-white text-sm font-bold focus:ring-emerald-500 outline-none shadow-inner text-center" value={newCatTarget} onChange={e=>setNewCatTarget(e.target.value)} /></div>
-                    )}
-                    <button onClick={handleAddCategory} className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-500 px-8 py-3.5 md:py-3 rounded-xl text-white font-bold text-sm shadow-lg transition-all active:scale-95 mt-2 md:mt-0 tracking-wide border border-emerald-500">SIMPAN</button>
                   </div>
-                </div>
+                )}
               </div>
             )}
-          </div>
-        )}
-      </main>
+          </main>
+        </div>
+      )}
 
       {/* COMPONENT MODAL CUSTOM (ERROR TYPO EXCEL) */}
       {pasteErrors.length > 0 && (
