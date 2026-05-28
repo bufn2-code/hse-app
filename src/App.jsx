@@ -59,7 +59,7 @@ const defaultSettings = {
     Foreman: [],
     Admin: []
   },
-  lastDataUpdate: '' // Menyimpan riwayat terakhir update data excel
+  lastDataUpdate: '' 
 };
 
 export default function App() {
@@ -172,7 +172,13 @@ export default function App() {
       
       const timestampString = `${day} ${month} ${year} - Pukul ${hours}:${minutes} WITA`;
       
+      // Update state lokal secara instan agar langsung berubah di layar
+      setMasterData(prev => ({ ...prev, lastDataUpdate: timestampString }));
+      
+      // Simpan ke database Firebase
       await setDoc(doc(db, 'artifacts', getAppId(), 'settings', 'master'), { lastDataUpdate: timestampString }, { merge: true });
+      
+      showToast("Waktu sinkronisasi berhasil diperbarui!");
     } catch (error) {
       console.error("Gagal update timestamp:", error);
     }
@@ -259,7 +265,7 @@ export default function App() {
           areas: data.areas && data.areas.length > 0 ? data.areas : defaultSettings.areas,
           roles: validatedRoles,
           categories: data.categories || defaultSettings.categories,
-          lastDataUpdate: data.lastDataUpdate || '' // Tangkap riwayat update terbaru
+          lastDataUpdate: data.lastDataUpdate || '' 
         };
         setMasterData(safeData);
       } else {
@@ -307,7 +313,6 @@ export default function App() {
     return () => { unsubW(); unsubM(); };
   }, [selectedPeriod]);
 
-  // PROTEKSI FILTER ROLE
   const isManager = currentUser && ['Admin', 'Foreman', 'WFSO'].includes(currentUser.role);
   useEffect(() => {
     if (currentUser && !isManager) setSelectedRoleContext(currentUser.role);
@@ -355,6 +360,10 @@ export default function App() {
     setRememberMe(false);
     localStorage.removeItem('bufn2_user_session'); 
     showToast("Berhasil keluar.");
+  };
+
+  const scrollToView = (e) => {
+    setTimeout(() => { e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 300);
   };
 
   // =====================================================
@@ -459,9 +468,9 @@ export default function App() {
     try {
       for (const empId of Object.keys(updates)) { await setDoc(doc(db, 'artifacts', getAppId(), `weekly_${selectedPeriod}`, empId), updates[empId], { merge: true }); }
       
-      // TRIGGER TIMESTAMP SETELAH EXCEL BERHASIL MASUK
+      // TRIGGER TIMESTAMP SETELAH PASTE BERHASIL
       await updateLastModified();
-
+      
       setPasteText(''); showToast(`Berhasil merekap ${lineTotal} data!`);
       if(notFoundNames.length > 0) setPasteErrors(Array.from(new Set(notFoundNames)));
     } catch (error) { showToast("Gagal: " + error.message, "error"); }
@@ -470,7 +479,8 @@ export default function App() {
   const handleMonthlyInput = async (empId, field, value) => {
     try { 
       await setDoc(doc(db, 'artifacts', getAppId(), `monthly_${selectedPeriod}`, empId), { [field]: value }, { merge: true }); 
-      // TRIGGER TIMESTAMP SETELAH EDIT KEPATUHAN / PELANGGARAN
+      
+      // TRIGGER TIMESTAMP SETELAH EDIT KEPATUHAN / KETERANGAN
       await updateLastModified();
     } catch (error) { console.error(error); }
   };
@@ -578,7 +588,7 @@ export default function App() {
 
 
   // =====================================================
-  // RENDER PRAMUAT & JENDELA LOGIN & MODAL GLOBAL (ALL STATES)
+  // RENDER PRAMUAT & JENDELA LOGIN & MODAL GLOBAL
   // =====================================================
   if (!isDbReady || isCheckingSession) {
     return (
@@ -590,14 +600,13 @@ export default function App() {
 
   if (!currentUser) {
     return (
-      <div className="min-h-[100dvh] w-full bg-slate-950 flex items-center justify-center p-4 md:p-6 overflow-y-auto relative">
+      <div className="min-h-[100dvh] w-full bg-slate-950 flex flex-col p-4 md:p-6 overflow-y-auto relative">
         {toast.show && (
           <div className="fixed top-6 right-6 z-[200] bg-red-600 text-white p-4 rounded-xl shadow-2xl flex items-center gap-2">
             <XCircle size={20}/> <span className="text-sm font-semibold">{toast.msg}</span>
           </div>
         )}
         
-        {/* COMPONENT POPUP PWA INSTALASI (MUNCUL DI HALAMAN LOGIN JUGA) */}
         {showInstallPopup && (
           <div className="fixed top-4 left-4 right-4 md:left-auto md:right-6 md:max-w-sm bg-gradient-to-r from-emerald-900 to-slate-900 text-white p-4 rounded-2xl shadow-2xl z-[150] border border-emerald-700 animate-in slide-in-from-top duration-500">
             <div className="flex gap-4 items-start">
@@ -613,7 +622,7 @@ export default function App() {
                   <button onClick={triggerNativeInstall} className="mt-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-xl transition-all shadow-md w-full">Instal Sekarang</button>
                 )}
               </div>
-              <button onClick={() => setShowInstallPopup(false)} className="text-slate-400 hover:text-white font-bold text-sm bg-slate-800 rounded-full w-6 h-6 flex items-center justify-center">✕</button>
+              <button onClick={() => setShowInstallPopup(false)} className="text-slate-400 hover:text-white font-bold text-sm bg-slate-800 rounded-full w-6 h-6 flex items-center justify-center shrink-0">✕</button>
             </div>
           </div>
         )}
@@ -621,13 +630,13 @@ export default function App() {
         <div className="absolute top-0 left-0 w-96 h-96 bg-emerald-700/20 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2 pointer-events-none"></div>
         <div className="absolute bottom-0 right-0 w-96 h-96 bg-teal-700/20 rounded-full blur-3xl translate-x-1/2 translate-y-1/2 pointer-events-none"></div>
         
-        <div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl shadow-2xl w-full max-w-sm relative z-10 animate-in fade-in zoom-in duration-300 my-auto">
-          <div className="text-center mb-8">
-            <div className="bg-emerald-500/10 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.2)]">
-              <CheckCircle size={48} className="text-emerald-500" />
+        <div className="m-auto bg-slate-900 border border-slate-800 p-6 md:p-8 rounded-3xl shadow-2xl w-full max-w-sm relative z-10 animate-in fade-in zoom-in duration-300 shrink-0">
+          <div className="text-center mb-6">
+            <div className="bg-emerald-500/10 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-3 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.2)]">
+              <CheckCircle size={36} className="text-emerald-500" />
             </div>
-            <h2 className="text-2xl font-black text-white tracking-tighter uppercase">Portal KPI HSE BUFN 2</h2>
-            <p className="text-slate-500 text-sm mt-1">Sistem Evaluasi Mandiri</p>
+            <h2 className="text-xl font-black text-white tracking-tighter uppercase">KPI HSE Portal</h2>
+            <p className="text-slate-500 text-xs mt-1">Sistem Evaluasi BUFN 2</p>
           </div>
           
           <form onSubmit={handleLoginSubmit} className="space-y-4">
@@ -635,33 +644,25 @@ export default function App() {
               <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-wider">ID Karyawan</label>
               <div className="relative mt-1">
                 <User size={18} className="absolute left-4 top-3.5 text-slate-500" />
-                <input type="text" placeholder="Contoh: 822" className="w-full bg-slate-800 border border-slate-700 p-3.5 pl-12 rounded-2xl text-white outline-none focus:border-emerald-500 transition-all font-mono text-sm shadow-inner"
-                  value={loginForm.idKaryawan} onChange={e => setLoginForm({...loginForm, idKaryawan: e.target.value})} />
+                <input type="text" placeholder="Contoh: SO-001" className="w-full bg-slate-800 border border-slate-700 p-3 pl-11 rounded-2xl text-white outline-none focus:border-emerald-500 transition-all font-mono text-sm shadow-inner"
+                  value={loginForm.idKaryawan} onChange={e => setLoginForm({...loginForm, idKaryawan: e.target.value})} onFocus={scrollToView} />
               </div>
             </div>
             <div>
               <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-wider">Password</label>
               <div className="relative mt-1">
                 <Lock size={18} className="absolute left-4 top-3.5 text-slate-500" />
-                <input type="password" placeholder="••••••••" className="w-full bg-slate-800 border border-slate-700 p-3.5 pl-12 rounded-2xl text-white outline-none focus:border-emerald-500 transition-all text-sm shadow-inner"
-                  value={loginForm.password} onChange={e => setLoginForm({...loginForm, password: e.target.value})} />
+                <input type="password" placeholder="••••••••" className="w-full bg-slate-800 border border-slate-700 p-3 pl-11 rounded-2xl text-white outline-none focus:border-emerald-500 transition-all text-sm shadow-inner"
+                  value={loginForm.password} onChange={e => setLoginForm({...loginForm, password: e.target.value})} onFocus={scrollToView} />
               </div>
             </div>
 
-            <div className="flex items-center gap-2 pt-2 pb-1 ml-1">
-              <input 
-                type="checkbox" 
-                id="rememberMe" 
-                className="w-4 h-4 rounded border-slate-600 bg-slate-800 accent-emerald-500 cursor-pointer"
-                checked={rememberMe}
-                onChange={(e) => setRememberMe(e.target.checked)}
-              />
-              <label htmlFor="rememberMe" className="text-[11px] font-semibold text-slate-400 select-none cursor-pointer">
-                Biarkan saya tetap masuk
-              </label>
+            <div className="flex items-center gap-2 pt-1 pb-1 ml-1">
+              <input type="checkbox" id="rememberMe" className="w-4 h-4 rounded border-slate-600 bg-slate-800 accent-emerald-500 cursor-pointer shrink-0" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} />
+              <label htmlFor="rememberMe" className="text-[11px] font-semibold text-slate-400 select-none cursor-pointer">Biarkan saya tetap masuk</label>
             </div>
 
-            <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-4 rounded-2xl shadow-xl shadow-emerald-900/40 transition-all transform active:scale-[0.98] tracking-widest text-sm mt-2">
+            <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-3.5 rounded-2xl shadow-xl shadow-emerald-900/40 transition-all transform active:scale-[0.98] tracking-widest text-sm mt-2">
               MASUK SISTEM
             </button>
           </form>
@@ -683,7 +684,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL EXIT APP (KEMBALI KE HOMESCREEN HP) */}
+      {/* MODAL EXIT APP */}
       {showExitModal && (
         <div className="fixed inset-0 bg-slate-900/80 flex items-center justify-center z-[200] p-4 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white rounded-3xl shadow-2xl max-w-xs w-full p-6 text-center border border-slate-200">
@@ -742,7 +743,6 @@ export default function App() {
           )}
         </div>
 
-        {/* ROLE FILTER */}
         {['input', 'laporan', 'dashboard'].includes(activeTab) && isManager && (
           <div className="mb-4 bg-white p-4 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center gap-3 border border-slate-200">
             <span className="font-bold text-slate-700 text-sm">Tampilkan Data Untuk:</span>
@@ -759,9 +759,20 @@ export default function App() {
           <div className="space-y-6">
             
             {/* BANNER TIMESTAMP TERAKHIR DIUPDATE */}
-            <div className="bg-emerald-50 border border-emerald-200 px-4 py-3 rounded-2xl flex items-center gap-3 shadow-sm mb-2">
-              <div className="bg-emerald-100 p-2 rounded-xl text-emerald-600"><Clock size={20}/></div>
-              <p className="text-xs md:text-sm text-emerald-800 font-medium">Data Pencapaian Terakhir Diperbarui:<br className="block md:hidden"/> <b className="text-emerald-900 font-bold">{masterData.lastDataUpdate || 'Belum ada riwayat pembaruan.'}</b></p>
+            <div className="bg-emerald-50 border border-emerald-200 px-4 py-3 rounded-2xl flex items-center gap-3 shadow-sm mb-4">
+              <div className="bg-emerald-100 p-2.5 rounded-xl text-emerald-600"><Clock size={20}/></div>
+              <div className="flex-1">
+                <p className="text-[10px] md:text-xs text-emerald-700 font-bold uppercase tracking-wider mb-0.5">Status Sinkronisasi Data</p>
+                <p className="text-sm md:text-base text-emerald-900 font-black">
+                  Last Update : {masterData.lastDataUpdate || 'Belum ada data'}
+                </p>
+              </div>
+              {/* Tombol Force Update Khusus Admin */}
+              {currentUser.role === 'Admin' && (
+                <button onClick={updateLastModified} className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] md:text-xs font-bold px-3 py-2 rounded-xl shadow-sm transition-all active:scale-95 whitespace-nowrap border border-emerald-700">
+                  Update Waktu
+                </button>
+              )}
             </div>
 
             {isManager && (
