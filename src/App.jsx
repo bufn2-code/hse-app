@@ -80,6 +80,10 @@ export default function App() {
     return periods;
   };
 
+  // DETEKSI IPHONE YANG AMAN DARI VITE ERROR
+  const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+  const isIOSDevice = userAgent.includes('iPhone') || userAgent.includes('iPad') || userAgent.includes('iPod');
+
   // =====================================================
   // STATE UTAMA
   // =====================================================
@@ -463,7 +467,9 @@ export default function App() {
 
     try {
       for (const empId of Object.keys(updates)) { await setDoc(doc(db, 'artifacts', getAppId(), `weekly_${selectedPeriod}`, empId), updates[empId], { merge: true }); }
+      
       await updateLastModified();
+      
       setPasteText(''); showToast(`Berhasil merekap ${lineTotal} data!`);
       if(notFoundNames.length > 0) setPasteErrors(Array.from(new Set(notFoundNames)));
     } catch (error) { showToast("Gagal: " + error.message, "error"); }
@@ -579,7 +585,7 @@ export default function App() {
 
 
   // =====================================================
-  // RENDER PRAMUAT & JENDELA LOGIN & MODAL GLOBAL
+  // RENDER PRAMUAT & JENDELA LOGIN & MODAL GLOBAL (ALL STATES)
   // =====================================================
   if (!isDbReady || isCheckingSession) {
     return (
@@ -605,7 +611,7 @@ export default function App() {
               <div className="flex-1">
                 <h3 className="font-black text-sm tracking-wide text-emerald-300">Instal Aplikasi KPI HSE</h3>
                 <p className="text-slate-300 text-xs mt-1 leading-relaxed">Akses lebih cepat dan lancar langsung dari layar beranda HP Anda.</p>
-                {navigator.userAgent.match(/iPhone|iPad|iPod/i) ? (
+                {isIOSDevice ? (
                   <div className="mt-3 text-[11px] bg-black/40 text-emerald-300 p-2 rounded-lg border border-emerald-800/50">
                     👉 Tekan tombol <b>Share</b> lalu pilih <b>Add to Home Screen</b>.
                   </div>
@@ -637,7 +643,7 @@ export default function App() {
                 <User size={18} className="absolute left-4 top-3.5 text-slate-500" />
                 <input 
                   type="text" 
-                  placeholder="Contoh: 82210" 
+                  placeholder="Contoh: 82210..." 
                   className="w-full bg-slate-800 border border-slate-700 p-3 pl-11 rounded-2xl text-white outline-none focus:border-emerald-500 transition-all font-mono text-sm shadow-inner"
                   value={loginForm.idKaryawan} 
                   onChange={e => setLoginForm({...loginForm, idKaryawan: e.target.value})}
@@ -995,7 +1001,6 @@ export default function App() {
                  <div className="mb-6 pb-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
                    <h2 className="font-black text-xl md:text-2xl text-slate-800">Laporan Akhir Kinerja (KPI)</h2>
                    
-                   {/* INDIKATOR STATUS DATA */}
                    <div className="bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 flex items-center gap-2 w-fit">
                      <span className="relative flex h-2.5 w-2.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span></span>
                      <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-widest">Live Sync</span>
