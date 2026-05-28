@@ -284,7 +284,7 @@ export default function App() {
 
     if (!username || !password) return showToast("Harap isi seluruh kolom!", "error");
 
-    if (username.toLowerCase() === 'admin' && password === 'adminbufn2') {
+    if (username.toLowerCase() === 'admin' && password === 'addminbufn2') {
       setCurrentUser({ id: 'master-admin', nama: 'Super Admin HSE', role: 'Admin', area: 'All Smelters', idKaryawan: 'admin' });
       showToast("Selamat datang, Super Admin!");
       setActiveTab('dashboard');
