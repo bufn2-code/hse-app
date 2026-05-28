@@ -13,7 +13,6 @@ import {
   LayoutDashboard, 
   Calendar, 
   TrendingDown, 
-  Info, 
   Settings, 
   Plus, 
   XCircle, 
@@ -43,7 +42,9 @@ const app = initializeApp(getFirebaseConfig());
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// MASTER DATA BAWAAN (Akan otomatis masuk jika database baru/kosong)
+// =====================================================
+// MASTER DATA (INDIKATOR & TARGET SUDAH DISESUAIKAN)
+// =====================================================
 const defaultSettings = {
   areas: ['Smelter C', 'Smelter E', 'Smelter F'], 
   roles: [
@@ -57,7 +58,7 @@ const defaultSettings = {
       { key: 'st', label: 'Safety Talk', target: 8, isTargeted: true },
       { key: 'ss', label: 'Safety Sharing', target: 28, isTargeted: true },
       { key: 'si', label: 'Safety Inspection', target: 0, isTargeted: false },
-      { key: 'ps', label: 'Pelatihan Safety (Internal)', target: 0, isTargeted: false }
+      { key: 'ps', label: 'Pelatihan Safety', target: 0, isTargeted: false }
     ],
     WFSO: [
       { key: 'obs', label: 'Observasi', target: 140, isTargeted: true },
@@ -72,39 +73,31 @@ const defaultSettings = {
 };
 
 export default function App() {
-  // Ambil string tahun-bulan saat ini (Format: YYYY-MM)
   const getCurrentMonth = () => {
     const today = new Date();
     return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
   };
 
-  // =====================================================
-  // STATE SISTEM UTAMA
-  // =====================================================
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [dashboardMode, setDashboardMode] = useState('bulanan'); // bulanan vs tahunan
+  const [dashboardMode, setDashboardMode] = useState('bulanan'); 
   const [selectedPeriod, setSelectedPeriod] = useState(getCurrentMonth());
   const [user, setUser] = useState(null);
   const [isDbReady, setIsDbReady] = useState(false);
   
-  // STATE NOTIFIKASI TOAST CUSTOM
   const [toast, setToast] = useState({ show: false, msg: '', type: 'success' });
   const showToast = (msg, type = 'success') => {
     setToast({ show: true, msg, type });
     setTimeout(() => setToast({ show: false, msg: '', type: 'success' }), 3500);
   };
 
-  // STATE DATA DARI FIRESTORE
   const [personnel, setPersonnel] = useState([]);
   const [weeklyData, setWeeklyData] = useState({});
   const [monthlyData, setMonthlyData] = useState({});
   const [masterData, setMasterData] = useState(defaultSettings); 
   
-  // STATE KONTROL PENCARIAN & DASHBOARD PER AREA
   const [searchQuery, setSearchQuery] = useState('');
-  const [dashboardSearch, setDashboardSearch] = useState({}); // Menyimpan kata kunci pencarian per Smelter
+  const [dashboardSearch, setDashboardSearch] = useState({}); 
   
-  // STATE FORM INPUT & MODAL
   const [newEmp, setNewEmp] = useState({ nama: '', area: '', role: '' });
   const [selectedRoleContext, setSelectedRoleContext] = useState('SO');
   const [selectedWeek, setSelectedWeek] = useState('w1');
@@ -115,14 +108,12 @@ export default function App() {
   const [editFormData, setEditFormData] = useState({ nama: '', area: '', role: '' });
   const [deleteModal, setDeleteModal] = useState({ show: false, id: null, nama: '' });
   
-  // STATE FORM PENGATURAN MASTER DATA
   const [newArea, setNewArea] = useState('');
   const [newCatLabel, setNewCatLabel] = useState('');
   const [newCatTarget, setNewCatTarget] = useState(0);
   const [newCatType, setNewCatType] = useState('target'); 
   const [newCatRole, setNewCatRole] = useState('SO');
 
-  // STATE REKAPAN TAHUNAN BEST KARYAWAN
   const [yearlyRecapData, setYearlyRecapData] = useState({ globalBest: null, areaBest: {} });
   const [loadingYearly, setLoadingYearly] = useState(false);
 
@@ -134,9 +125,8 @@ export default function App() {
     { id: 'w3', label: 'Minggu 3' }, { id: 'w4', label: 'Minggu 4' }, { id: 'w5', label: 'Minggu 5' }
   ];
 
-  // REALTIME SYNCHRONIZATION DENGAN FIRESTORE (Jalur Alamat Diperbaiki Sesuai Aturan Segment)
   useEffect(() => {
-    signInAnonymously(auth).catch(err => console.error("Anonymous Auth Gagal:", err));
+    signInAnonymously(auth).catch(err => console.error("Auth Gagal:", err));
     return onAuthStateChanged(auth, setUser);
   }, []);
 
@@ -147,7 +137,6 @@ export default function App() {
     const unsubs = [];
 
     try {
-      // MASTER DATA SETTINGS (4 Segment)
       const unsubSettings = onSnapshot(doc(db, 'artifacts', appId, 'settings', 'master'), (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
@@ -162,10 +151,9 @@ export default function App() {
         } else {
           setDoc(doc(db, 'artifacts', appId, 'settings', 'master'), defaultSettings);
         }
-      }, (err) => console.error("Gagal sinkronisasi pengaturan:", err));
+      }, (err) => console.error("Gagal memuat setting:", err));
       unsubs.push(unsubSettings);
 
-      // DATA KARYAWAN UTAMA (3 Segment)
       const unsubPersonnel = onSnapshot(collection(db, 'artifacts', appId, 'personnel'), (s) => { 
         const d = []; 
         s.forEach(doc => { 
@@ -176,13 +164,11 @@ export default function App() {
       });
       unsubs.push(unsubPersonnel);
       
-      // DATA CAPAIAN MINGGUAN PER PERIODE BULAN (3 Segment)
       const unsubWeekly = onSnapshot(collection(db, 'artifacts', appId, `weekly_${selectedPeriod}`), (s) => { 
         const d = {}; s.forEach(doc => { d[doc.id] = doc.data(); }); setWeeklyData(d); 
       });
       unsubs.push(unsubWeekly);
       
-      // DATA DINAMIS BULANAN PER PERIODE BULAN (3 Segment)
       const unsubMonthly = onSnapshot(collection(db, 'artifacts', appId, `monthly_${selectedPeriod}`), (s) => { 
         const d = {}; s.forEach(doc => { d[doc.id] = doc.data(); }); setMonthlyData(d); setIsDbReady(true); 
       }, (err) => { console.error(err); setIsDbReady(true); });
@@ -195,14 +181,14 @@ export default function App() {
     return () => { unsubs.forEach(u => u()); };
   }, [user, selectedPeriod]);
 
-  // Jaga agar rekap tahunan otomatis terhitung ulang jika tab dipindah atau periode ganti
+  // BUG FIX: Karyawan Terbaik kini akan diproses ulang otomatis setiap kali filter role (SO/WFSO) ditekan.
   useEffect(() => {
     if (activeTab === 'dashboard' && dashboardMode === 'tahunan' && personnel.length > 0) {
       calculateYearlyBest();
     }
-  }, [activeTab, dashboardMode, selectedPeriod, personnel]);
+  }, [activeTab, dashboardMode, selectedPeriod, personnel, selectedRoleContext]);
 
-  // --- OPRASIONAL MASTER DATA ---
+  // --- OPERASIONAL MASTER DATA ---
   const saveMasterData = async (newData) => {
     try {
       await setDoc(doc(db, 'artifacts', getAppId(), 'settings', 'master'), newData);
@@ -303,18 +289,16 @@ export default function App() {
     const counts = {}; 
     let lineTotal = 0;
 
-    // 1. Algoritma menghitung jumlah string nama yang muncul
     lines.forEach(line => {
       const parts = line.split('\t').map(p => p.trim()).filter(p => p !== '');
       if (parts.length < 1) return;
 
       const namaPaste = parts[0].toLowerCase();
       if (!counts[namaPaste]) counts[namaPaste] = 0;
-      counts[namaPaste] += 1; // Menjumlahkan frekuensi kemunculan nama
+      counts[namaPaste] += 1; 
       lineTotal++;
     });
 
-    // 2. Persiapan akumulasi dengan database
     const updates = {};
     let matchedCount = 0;
     let notFoundNames = [];
@@ -325,7 +309,6 @@ export default function App() {
         if (!updates[emp.id]) updates[emp.id] = {};
         if (!updates[emp.id][selectedWeek]) updates[emp.id][selectedWeek] = {};
         
-        // Mengakumulasikan nilai lama yang ada di database dengan hitungan baru
         const oldVal = weeklyData[emp.id]?.[selectedWeek]?.[selectedIndicator] || 0;
         updates[emp.id][selectedWeek][selectedIndicator] = oldVal + counts[namaKey];
         matchedCount++;
@@ -341,7 +324,7 @@ export default function App() {
       setPasteText('');
       showToast(`Berhasil merekap ${lineTotal} data untuk ${matchedCount} karyawan!`);
       if(notFoundNames.length > 0) {
-        setTimeout(() => showToast(`Ada ${Array.from(new Set(notFoundNames)).length} nama tidak cocok dengan Jabatan/Master data.`, "error"), 3500);
+        setTimeout(() => showToast(`Ada ${Array.from(new Set(notFoundNames)).length} nama tidak terdaftar/salah jabatan.`, "error"), 3500);
       }
     } catch (error) {
       showToast("Gagal memproses rekap data: " + error.message, "error");
@@ -356,7 +339,9 @@ export default function App() {
     }
   };
 
-  // --- PENGHITUNGAN RUMUS KPI ---
+  // =====================================================
+  // ENGINE LOGIKA RUMUS MATEMATIKA KPI (UPDATE AKURASI 100%)
+  // =====================================================
   const getAccumulatedData = (empId, role) => {
     const empData = weeklyData[empId] || {};
     const total = {};
@@ -369,31 +354,52 @@ export default function App() {
 
   const calculateScore = (acc, um, roleId) => {
     const cats = getActiveCategories(roleId);
+    
+    // Pemisahan Kategori (Target Utama & Extra)
     const targetedCats = cats.filter(c => c.isTargeted);
+    const untargetedCats = cats.filter(c => !c.isTargeted);
+    
+    // TAHAP 1 & 2: RUMUS SKOR AWAL (PRORATA)
     const weightPerCat = targetedCats.length > 0 ? (100 / targetedCats.length) : 0; 
-
     let sAwal = targetedCats.length > 0 ? 100 : 0;
+    
     targetedCats.forEach(c => {
       const val = acc[c.key] || 0;
+      // Rem Pengaman: Jika val >= target, sAwal tetap utuh (tidak minus/over)
       if (val < c.target) {
-        const shortfall = (c.target - val) / c.target;
-        sAwal -= (shortfall * weightPerCat);
+        const shortfall = c.target - val;
+        const percentageFailed = shortfall / c.target;
+        sAwal -= (percentageFailed * weightPerCat);
       }
     });
-    if(sAwal < 0) sAwal = 0;
+    if(sAwal < 0) sAwal = 0; // Proteksi nilai ekstrem
 
-    let tPoin = parseInt(um.kepatuhan) || 75;
-    cats.filter(c => !c.isTargeted).forEach(c => tPoin += (acc[c.key] || 0)); 
+    // RUMUS TAMBAHAN POIN
+    let tPoin = Number(um.kepatuhan) || 75; // Kepatuhan digabungkan di sini
+    untargetedCats.forEach(c => { tPoin += (acc[c.key] || 0) }); // Ditambah Nilai Extra (Safety Inspection & Pelatihan)
 
-    const penalti = -((parseInt(um.pelanggaran) || 0) * 5);
+    // RUMUS PENALTI KEPATUHAN
+    const penalti = (Number(um.pelanggaran) || 0) * -5;
+
+    // RUMUS SKOR AKHIR
     const sAkhir = sAwal + tPoin + penalti;
     
+    // RUMUS NILAI KASTA (GRADE)
     let grade = 'D';
+    const isAwalSempurna = Math.abs(sAwal - 100) < 0.1; // Mengatasi isu float precision pada Javascript
     const ket = (um.keterangan || "").toLowerCase();
-    if (ket.includes("ijin") || ket.includes("cuti")) grade = "C";
-    else if (sAkhir >= 170 && um.kepatuhan == 100) grade = "A";
-    else if (sAkhir >= 141 && um.kepatuhan == 100) grade = "B";
-    else if (sAkhir >= 100 && um.kepatuhan == 100) grade = "C";
+    const hasIjin = ket.includes("ijin") || ket.includes("cuti");
+
+    if (isAwalSempurna) {
+      if (sAkhir >= 170) grade = 'A';
+      else if (sAkhir >= 141) grade = 'B';
+      else if (sAkhir >= 100) grade = 'C';
+    } else {
+      // Jalur Penyelamat Absen
+      if (hasIjin) {
+        grade = 'C';
+      }
+    }
 
     return { sAwal, tPoin, penalti, sAkhir, grade };
   };
@@ -407,12 +413,9 @@ export default function App() {
     setLoadingYearly(true);
     const year = selectedPeriod.split('-')[0];
     const appId = getAppId();
-    
-    // Objek penampung akumulasi nilai total tahunan perkaryawan
     const yearlyScores = {};
 
     try {
-      // Loop menarik data 12 bulan dari Firestore cloud
       for (let m = 1; m <= 12; m++) {
         const periodKey = `${year}-${String(m).padStart(2, '0')}`;
         
@@ -424,12 +427,12 @@ export default function App() {
         const mData = {};
         monthlySnap.forEach(doc => { mData[doc.id] = doc.data(); });
 
+        // Filter ketat memastikan HANYA role yang sedang diaktifkan yang dikalkulasi
         personnel.filter(p => p.role === selectedRoleContext).forEach(p => {
           if (!yearlyScores[p.id]) {
             yearlyScores[p.id] = { id: p.id, nama: p.nama, area: p.area, totalScore: 0, monthsActive: 0 };
           }
 
-          // Akumulasi mingguan di bulan berjalan
           const empWeekly = wData[p.id] || {};
           const totalWeeklyAcc = {};
           getActiveCategories(p.role).forEach(c => totalWeeklyAcc[c.key] = 0);
@@ -442,24 +445,22 @@ export default function App() {
           const calc = calculateScore(totalWeeklyAcc, empMonthly, p.role);
           
           yearlyScores[p.id].totalScore += calc.sAkhir;
-          yearlyScores[p.id].monthsActive += 1;
+          yearlyScores[p.id].monthsActive += 1; // Menghitung bulan kehadiran
         });
       }
 
-      // Hitung nilai rata-rata tahunan perkaryawan
+      // Hitung rata-rata
       const finalRank = Object.values(yearlyScores).map(p => ({
         ...p,
         averageScore: p.monthsActive > 0 ? (p.totalScore / p.monthsActive) : 0
       })).filter(p => p.averageScore > 0);
 
-      // Urutkan nilai tertinggi ke terendah
       finalRank.sort((a, b) => b.averageScore - a.averageScore);
 
-      // Pisahkan juara per area smelter
       const areaBest = {};
       masterData.areas.forEach(area => {
         const filteredArea = finalRank.filter(p => p.area === area);
-        areaBest[area] = filteredArea[0] || null; // Ambil posisi rank 1
+        areaBest[area] = filteredArea[0] || null; 
       });
 
       setYearlyRecapData({
@@ -487,6 +488,30 @@ export default function App() {
     return defisit.sort((a, b) => b.kurang - a.kurang);
   };
 
+  const exportToExcel = (area, personnelList) => {
+    const cats = getActiveCategories(selectedRoleContext);
+    let csvContent = "Area,Nama,";
+    cats.forEach(c => csvContent += `"${c.label}",`);
+    csvContent += "Kepatuhan,Pelanggaran,Skor Awal,Tambahan Poin,Penalti Kepatuhan,Skor Akhir,Nilai,Keterangan\n";
+
+    personnelList.forEach(p => {
+      const acc = getAccumulatedData(p.id, p.role);
+      const um = monthlyData[p.id] || { kepatuhan: 75, pelanggaran: 0, keterangan: '' };
+      const calc = calculateScore(acc, um, p.role);
+
+      let row = `"${p.area}","${p.nama}",`;
+      cats.forEach(c => row += `"${acc[c.key]||0}",`);
+      row += `"${um.kepatuhan||75}","${um.pelanggaran||0}","${calc.sAwal.toFixed(1)}","${calc.tPoin}","${calc.penalti}","${calc.sAkhir.toFixed(1)}","${calc.grade}","${um.keterangan||''}"\n`;
+      csvContent += row;
+    });
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `Laporan_KPI_${selectedRoleContext}_${area}_${selectedPeriod}.csv`;
+    link.click();
+  };
+
   const getActiveAreasForView = (personnelList) => {
     const areas = [...masterData.areas];
     const hasUnlisted = personnelList.some(p => !masterData.areas.includes(p.area));
@@ -497,12 +522,23 @@ export default function App() {
   const filteredPersonnel = personnel.filter(p => p.role === selectedRoleContext);
   const searchResult = personnel.filter(p => (p.nama || '').toLowerCase().includes(searchQuery.toLowerCase()));
 
+  if (!isDbReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100 text-emerald-700">
+        <div className="flex flex-col items-center">
+          <svg className="animate-spin h-10 w-10 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+          <span className="font-semibold tracking-wider">Memuat Database...</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800 font-sans pb-12 relative overflow-hidden">
       
-      {/* COMPONENT TOAST MODERN (FLUID TAILWIND DESIGN) */}
+      {/* COMPONENT TOAST MODERN */}
       {toast.show && (
-        <div className={`fixed top-6 right-6安全 z-[100] p-4 rounded-xl shadow-2xl flex items-center gap-3 text-white font-semibold transition-all duration-300 border border-white/20 animate-bounce ${toast.type === 'error' ? 'bg-gradient-to-r from-red-600 to-rose-700' : 'bg-gradient-to-r from-emerald-600 to-teal-700'}`}>
+        <div className={`fixed top-6 right-6 z-[100] p-4 rounded-xl shadow-2xl flex items-center gap-3 text-white font-semibold transition-all duration-300 border border-white/20 animate-bounce ${toast.type === 'error' ? 'bg-gradient-to-r from-red-600 to-rose-700' : 'bg-gradient-to-r from-emerald-600 to-teal-700'}`}>
           {toast.type === 'error' ? <XCircle size={22} /> : <CheckCircle size={22} />}
           <p className="text-sm tracking-wide">{toast.msg}</p>
         </div>
@@ -521,7 +557,6 @@ export default function App() {
           <div className="flex items-center gap-3">
             <div className="bg-emerald-900 px-4 py-2 rounded-lg border border-emerald-700 flex items-center gap-2 shadow-inner">
               <Calendar size={16} className="text-emerald-300"/>
-              {/* KALENDER WAKTU DINAMIS (POIN A) */}
               <input type="month" className="bg-transparent text-white font-bold text-sm focus:outline-none cursor-pointer" 
                 value={selectedPeriod} onChange={(e) => setSelectedPeriod(e.target.value)} />
             </div>
@@ -553,7 +588,7 @@ export default function App() {
           </div>
         )}
 
-        {/* --- TAB DASHBOARD (PEMISAHAN SMELTER + PENCARIAN + REKAP TAHUNAN) --- */}
+        {/* --- TAB DASHBOARD --- */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
             <div className="flex gap-2 bg-slate-200 p-1.5 rounded-lg w-fit shadow-inner">
@@ -561,14 +596,12 @@ export default function App() {
               <button onClick={() => setDashboardMode('tahunan')} className={`px-4 py-2 font-bold text-xs rounded-md transition-all ${dashboardMode === 'tahunan' ? 'bg-white text-emerald-800 shadow' : 'text-slate-600'}`}>Rekap Tahunan (Karyawan Terbaik)</button>
             </div>
 
-            {/* A. VIEW MODE BULANAN (TERPISAH PER SMELTER + SEARCH BAR PER AREA) */}
+            {/* A. VIEW MODE BULANAN */}
             {dashboardMode === 'bulanan' && (
               <div className="grid grid-cols-1 gap-6">
                 {masterData.areas.map(area => {
                   const defisitArea = getDefisitTarget().filter(d => d.area === area);
                   const searchKey = dashboardSearch[area] || '';
-                  
-                  // Filter pencarian khusus untuk smelter ini
                   const defisitAreaFiltered = defisitArea.filter(d => d.nama.toLowerCase().includes(searchKey.toLowerCase()));
 
                   return (
@@ -577,7 +610,6 @@ export default function App() {
                         <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
                           <TrendingDown className="text-red-500" size={20} /> {area}
                         </h3>
-                        {/* SEARCH BAR PER AREA */}
                         <div className="relative">
                           <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
                           <input type="text" placeholder={`Cari nama di ${area}...`} className="pl-8 pr-2 py-1 border rounded text-xs w-52 focus:ring-emerald-500"
@@ -609,14 +641,13 @@ export default function App() {
               </div>
             )}
 
-            {/* B. VIEW MODE TAHUNAN (REKAP KARYAWAN TERBAIK GLOBAL & PER AREA SMELTER) */}
+            {/* B. VIEW MODE TAHUNAN */}
             {dashboardMode === 'tahunan' && (
               <div className="space-y-6">
                 {loadingYearly ? (
                   <div className="p-12 text-center bg-white rounded-xl border font-semibold text-slate-500">Mengkalkulasi Rata-rata Nilai 12 Bulan...</div>
                 ) : (
                   <>
-                    {/* JUARA UMUM GLOBAL */}
                     {yearlyRecapData.globalBest && (
                       <div className="bg-gradient-to-r from-amber-500 to-yellow-600 p-6 rounded-xl shadow-lg text-white flex flex-col md:flex-row items-center justify-between gap-4">
                         <div className="flex items-center gap-4">
@@ -624,7 +655,7 @@ export default function App() {
                           <div>
                             <span className="bg-amber-800 text-white text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest">KARYAWAN TERBAIK TAHUNAN (GLOBAL)</span>
                             <h3 className="text-2xl font-black mt-1 tracking-wide shadow-sm">{yearlyRecapData.globalBest.nama}</h3>
-                            <p className="text-amber-100 text-xs mt-0.5">Penempatan: <b>{yearlyRecapData.globalBest.area}</b> | Jabatan: <b>{selectedRoleContext}</b></p>
+                            <p className="text-amber-100 text-xs mt-0.5">Penempatan: <b>{yearlyRecapData.globalBest.area}</b> | Jabatan: <b>{masterData.roles.find(r=>r.id===selectedRoleContext)?.name}</b></p>
                           </div>
                         </div>
                         <div className="bg-white/10 px-5 py-3 rounded-xl border border-white/20 text-center shadow-inner">
@@ -634,7 +665,6 @@ export default function App() {
                       </div>
                     )}
 
-                    {/* JUARA PER-SMELTER */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       {masterData.areas.map(area => {
                         const winner = yearlyRecapData.areaBest[area];
@@ -712,7 +742,7 @@ export default function App() {
                             </>
                           ) : (
                             <>
-                              <td className="p-3 font-medium text-slate-700">{p.nama}</td>
+                              <td className="p-3 font-medium">{p.nama}</td>
                               <td className="p-3 text-center font-bold text-slate-500">
                                 {p.area} {isAreaUnknown && <span className="text-red-500 text-xs block mt-1">(Perlu Diupdate)</span>}
                               </td>
@@ -730,7 +760,7 @@ export default function App() {
           </div>
         )}
 
-        {/* --- TAB INPUT NILAI KINERJA MINGGUAN --- */}
+        {/* --- TAB INPUT NILAI KINERJA --- */}
         {activeTab === 'input' && (
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -740,21 +770,11 @@ export default function App() {
                     <select className="border p-2 w-full rounded focus:ring-emerald-500" value={selectedWeek} onChange={(e) => setSelectedWeek(e.target.value)}>{weeks.map(w => <option key={w.id} value={w.id}>{w.label}</option>)}</select>
                     <select className="border p-2 w-full rounded focus:ring-emerald-500" value={selectedIndicator} onChange={(e) => setSelectedIndicator(e.target.value)}>{getActiveCategories(selectedRoleContext).map(c => <option key={c.key} value={c.key}>{c.label}</option>)}</select>
                   </div>
-                  <div className="bg-blue-50 border border-blue-200 text-blue-800 rounded p-3 text-xs mb-3">
-                     💡 <b>Format Baru Anti-Ribet:</b> Cukup blokir dan paste kolom <b>[Nama Karyawan]</b> dan kolom <b>[Area]</b> saja dari Excel. Aplikasi akan otomatis menjumlahkan berapa kali nama tersebut muncul sebagai skor!
-                  </div>
-                  <textarea className="w-full border p-3 h-48 rounded text-sm font-mono focus:ring-emerald-500" placeholder="Paste data excel di sini..." value={pasteText} onChange={(e) => setPasteText(e.target.value)}></textarea>
+                  <textarea className="w-full border p-3 h-48 rounded text-sm font-mono focus:ring-emerald-500" placeholder="Paste data kolom NAMA saja, atau dengan AREA..." value={pasteText} onChange={(e) => setPasteText(e.target.value)}></textarea>
                   <button onClick={handleProcessPaste} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 mt-4 rounded shadow">Proses & Akumulasikan</button>
                 </div>
                 <div>
                   <h2 className="font-bold text-lg mb-4">Preview ({masterData.roles.find(r=>r.id===selectedRoleContext)?.name})</h2>
-                  
-                  {getActiveAreasForView(filteredPersonnel).length === 0 && (
-                     <div className="text-center p-10 bg-slate-50 rounded-lg border border-dashed border-slate-300 text-slate-500">
-                        Belum ada karyawan terdaftar untuk jabatan ini.
-                     </div>
-                  )}
-
                   {getActiveAreasForView(filteredPersonnel).map(area => {
                     const isUnknown = area.includes('Tidak Dikenal');
                     const areaPersonnel = filteredPersonnel.filter(p => isUnknown ? !masterData.areas.includes(p.area) : p.area === area);
@@ -771,9 +791,7 @@ export default function App() {
                                 <tr key={p.id} className="border-b last:border-b-0 hover:bg-slate-50">
                                   <td className="p-2 font-medium">{p.nama}</td>
                                   {getActiveCategories(selectedRoleContext).map(c => (
-                                    <td key={c.key} className="p-2 text-center text-slate-600 font-bold">
-                                      {wData[c.key] !== undefined ? wData[c.key] : 0}
-                                    </td>
+                                    <td key={c.key} className="p-2 text-center text-slate-600 font-bold">{wData[c.key] !== undefined ? wData[c.key] : 0}</td>
                                   ))}
                                 </tr>
                               )
@@ -792,13 +810,6 @@ export default function App() {
         {activeTab === 'laporan' && (
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
              <div className="mb-6 pb-4 border-b border-slate-200"><h2 className="font-bold text-2xl">Laporan KPI - {selectedPeriod}</h2></div>
-             
-             {getActiveAreasForView(filteredPersonnel).length === 0 && (
-                <div className="text-center p-10 bg-slate-50 rounded-lg border border-dashed border-slate-300 text-slate-500 font-bold">
-                   Belum ada karyawan untuk ditampilkan pada periode ini.
-                </div>
-             )}
-
              {getActiveAreasForView(filteredPersonnel).map(area => {
                 const isUnknown = area.includes('Tidak Dikenal');
                 const areaPersonnel = filteredPersonnel.filter(p => isUnknown ? !masterData.areas.includes(p.area) : p.area === area);
@@ -813,29 +824,29 @@ export default function App() {
                     <table className="w-full text-xs border-collapse whitespace-nowrap border-x border-b border-slate-300">
                       <thead className="bg-slate-700 text-white">
                         <tr>
-                          <th className="p-3 text-left">Nama Lengkap</th><th className="p-3 text-center">Smelter/Area</th>
-                          {getActiveCategories(selectedRoleContext).map(c => <th key={c.key} className="p-3 border-l border-slate-600">{c.label}</th>)}
-                          <th className="p-3 bg-slate-600 border-l border-slate-500">Skor Awal</th><th className="p-3 bg-slate-600">+ Poin</th><th className="p-3 bg-slate-600">Pelanggaran</th><th className="p-3 bg-slate-600">Penalti</th><th className="p-3 bg-emerald-800 border-l border-emerald-700">Kepatuhan</th><th className="p-3 bg-emerald-800">Ket.</th><th className="p-3 bg-emerald-700 border-l border-emerald-600">SKOR AKHIR</th><th className="p-3 bg-emerald-600 border-l border-emerald-500">NILAI</th>
+                          <th className="p-3 text-left">Area</th><th className="p-3 text-center">Nama</th>
+                          {getActiveCategories(selectedRoleContext).map(c => <th key={c.key} className="p-3 border-l border-slate-600 text-center">{c.label}</th>)}
+                          <th className="p-3 bg-emerald-800 border-l border-emerald-700 text-center">Kepatuhan</th><th className="p-3 bg-slate-600 text-center">Pelanggaran</th><th className="p-3 bg-slate-600 border-l border-slate-500 text-center">Skor Awal</th><th className="p-3 bg-slate-600 text-center">Tambahan Poin</th><th className="p-3 bg-slate-600 text-center">Penalti Kepatuhan</th><th className="p-3 bg-emerald-700 border-l border-emerald-600 text-center">Skor Akhir</th><th className="p-3 bg-emerald-600 border-l border-emerald-500 text-center">Nilai</th><th className="p-3 bg-emerald-800 text-center">Keterangan</th>
                         </tr>
                       </thead>
                       <tbody>
                         {areaPersonnel.map(p => {
                           const acc = getAccumulatedData(p.id, p.role);
-                          const um = monthlyData[p.id] || { kepatuhan: 100, pelanggaran: 0, keterangan: '' };
+                          const um = monthlyData[p.id] || { kepatuhan: 75, pelanggaran: 0, keterangan: '' };
                           const calc = calculateScore(acc, um, p.role);
 
                           return (
                             <tr key={p.id} className="border-b border-slate-200 hover:bg-slate-50">
-                              <td className="p-3 font-bold text-slate-700">{p.nama}</td><td className="p-3 text-center font-bold text-slate-500 bg-slate-50/50">{p.area}</td>
+                              <td className="p-3 text-center font-bold text-slate-500 bg-slate-50/50">{p.area}</td><td className="p-3 font-bold text-slate-700">{p.nama}</td>
                               {getActiveCategories(selectedRoleContext).map(c => <td key={c.key} className="p-3 text-center border-l border-slate-200 font-medium">{acc[c.key]||0}</td>)}
-                              <td className="p-3 text-center border-l border-slate-200 bg-slate-50 font-bold">{calc.sAwal.toFixed(1)}</td>
-                              <td className="p-3 text-center bg-slate-50 font-bold text-emerald-600">+{calc.tPoin}</td>
+                              <td className="p-2 text-center border-l border-slate-200 bg-emerald-50/30"><select className="border p-1.5 rounded w-16 focus:ring-emerald-500 text-center" value={um.kepatuhan || 75} onChange={e=>handleMonthlyInput(p.id, 'kepatuhan', e.target.value)}><option value="25">25</option><option value="50">50</option><option value="75">75</option></select></td>
                               <td className="p-2 text-center bg-red-50/30 border-l border-slate-200"><input type="number" className="w-14 border p-1 rounded text-center focus:ring-red-500" value={um.pelanggaran || 0} onChange={e=>handleMonthlyInput(p.id, 'pelanggaran', e.target.value)}/></td>
+                              <td className="p-3 text-center border-l border-slate-200 bg-slate-50 font-bold">{calc.sAwal.toFixed(1)}</td>
+                              <td className="p-3 text-center bg-slate-50 font-bold text-emerald-600">{calc.tPoin}</td>
                               <td className="p-3 text-center text-red-600 font-bold bg-red-50/30">{calc.penalti}</td>
-                              <td className="p-2 text-center border-l border-slate-200 bg-emerald-50/30"><select className="border p-1.5 rounded w-full focus:ring-emerald-500" value={um.kepatuhan || 100} onChange={e=>handleMonthlyInput(p.id, 'kepatuhan', e.target.value)}><option value="25">25</option><option value="50">50</option><option value="75">75</option><option value="100">100</option></select></td>
-                              <td className="p-2 bg-emerald-50/30"><input type="text" className="w-24 border p-1.5 text-xs rounded focus:ring-emerald-500" placeholder="Cuti/Ijin" value={um.keterangan || ''} onChange={e=>handleMonthlyInput(p.id, 'keterangan', e.target.value)}/></td>
                               <td className="p-3 text-center font-bold text-lg text-emerald-800 bg-emerald-100/50 border-l border-emerald-200">{calc.sAkhir.toFixed(1)}</td>
                               <td className="p-3 text-center border-l border-emerald-200 bg-emerald-50/50"><span className={`px-3 py-1.5 rounded text-white font-black tracking-wider ${calc.grade==='A'?'bg-green-500':calc.grade==='B'?'bg-lime-500':calc.grade==='C'?'bg-yellow-500':'bg-red-500'}`}>{calc.grade}</span></td>
+                              <td className="p-2 bg-emerald-50/30"><input type="text" className="w-24 border p-1.5 text-xs rounded focus:ring-emerald-500" placeholder="Cuti/Ijin" value={um.keterangan || ''} onChange={e=>handleMonthlyInput(p.id, 'keterangan', e.target.value)}/></td>
                             </tr>
                           )
                         })}
@@ -847,15 +858,13 @@ export default function App() {
           </div>
         )}
 
-        {/* --- TAB PENGATURAN (PUSAT KONTROL MASTER DATA) --- */}
+        {/* --- TAB PENGATURAN --- */}
         {activeTab === 'pengaturan' && (
           <div className="bg-slate-800 p-6 rounded-xl shadow-lg border border-slate-700 text-slate-200">
             <h2 className="font-bold text-2xl mb-2 text-white flex items-center gap-2"><Settings /> Pengaturan Sistem (Master Data)</h2>
             <p className="text-sm text-slate-400 mb-8 border-b border-slate-700 pb-4">Setiap perubahan di sini akan otomatis mengubah seluruh struktur tabel, form, dan rumus penilaian di aplikasi secara instan.</p>
             
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              
-              {/* KOLOM KIRI: MANAJEMEN SMELTER */}
               <div className="bg-slate-900 p-5 rounded-lg border border-slate-700 h-fit lg:col-span-1">
                 <h3 className="font-bold text-white mb-4 flex items-center gap-2">Manajemen Smelter / Area</h3>
                 <div className="flex gap-2 mb-4">
@@ -871,7 +880,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* KOLOM KANAN: MANAJEMEN INDIKATOR (KPI) */}
               <div className="bg-slate-900 p-5 rounded-lg border border-slate-700 lg:col-span-2">
                 <h3 className="font-bold text-white mb-4">Manajemen Indikator & Target Utama</h3>
                 <div className="grid grid-cols-1 gap-6 mb-8">
@@ -880,14 +888,9 @@ export default function App() {
                       <h4 className="font-bold text-emerald-400 mb-4 border-b border-slate-700 pb-2">
                         <span>Indikator {r.name}</span>
                       </h4>
-                      
                       <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm mb-4">
-                          <thead>
-                            <tr className="text-slate-400 border-b border-slate-700">
-                              <th className="pb-2">Nama Indikator</th><th className="pb-2 text-center">Tipe Aturan</th><th className="pb-2 text-center">Target (Angka)</th><th className="pb-2 text-center">Aksi</th>
-                            </tr>
-                          </thead>
+                          <thead><tr className="text-slate-400 border-b border-slate-700"><th className="pb-2">Nama Indikator</th><th className="pb-2 text-center">Tipe Aturan</th><th className="pb-2 text-center">Target (Angka)</th><th className="pb-2 text-center">Aksi</th></tr></thead>
                           <tbody>
                             {masterData.categories[r.id]?.map((cat, index) => (
                               <tr key={cat.key} className="border-b border-slate-700/50">
@@ -910,7 +913,6 @@ export default function App() {
                   ))}
                 </div>
 
-                {/* MEMBUAT INDIKATOR BARU SECARA DINAMIS */}
                 <div className="bg-slate-800 p-4 rounded border border-emerald-700/50 shadow-inner">
                   <h4 className="font-bold text-white mb-3 text-sm flex items-center gap-2"><Plus size={16} className="text-emerald-400"/> Tambah Indikator Lapangan Baru</h4>
                   <div className="flex flex-wrap gap-3 items-end">
@@ -937,14 +939,14 @@ export default function App() {
         )}
       </main>
 
-      {/* COMPONENT MODAL CUSTOM (TAMPILAN MODERN DENGAN CONFIRMATION SECURE) */}
+      {/* COMPONENT MODAL CUSTOM */}
       {deleteModal.show && (
         <div className="fixed inset-0 bg-slate-900/75 flex items-center justify-center z-50 p-4 transition-opacity">
           <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 transform transition-all border border-slate-200">
             <div className="flex flex-col items-center text-center">
               <div className="bg-red-100 p-3 rounded-full mb-4"><AlertTriangle size={32} className="text-red-600" /></div>
               <h3 className="text-xl font-bold text-slate-800 mb-2">Hapus Karyawan?</h3>
-              <p className="text-slate-600 mb-6 text-sm">Apakah Anda yakin ingin menghapus <b>{deleteModal.nama}</b>? Data penilaian yang tersimpan pada bulan-bulan sebelumnya tidak akan hilang, namun profil karyawan ini akan dinonaktifkan dari daftar global.</p>
+              <p className="text-slate-600 mb-6 text-sm">Apakah Anda yakin ingin menghapus <b>{deleteModal.nama}</b>?</p>
               <div className="flex gap-3 w-full">
                 <button onClick={() => setDeleteModal({ show: false, id: null, nama: '' })} className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 transition-colors font-bold rounded-lg text-slate-700 text-sm">Batal</button>
                 <button onClick={confirmDelete} className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 transition-colors text-white font-bold rounded-lg text-sm shadow-md">Ya, Hapus</button>
