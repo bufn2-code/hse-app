@@ -140,8 +140,6 @@ export default function App() {
   const [loadingYearly, setLoadingYearly] = useState(false);
 
   const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'bufn2-kpi-app';
-  
-  // PELINDUNG ANTI-BLANK UNTUK ARRAY MASTER DATA
   const safeAreas = Array.isArray(masterData?.areas) && masterData.areas.length > 0 ? masterData.areas : defaultSettings.areas;
   const safeRoles = Array.isArray(masterData?.roles) && masterData.roles.length > 0 ? masterData.roles : defaultSettings.roles;
   const getActiveCategories = (roleId) => Array.isArray(masterData?.categories?.[roleId]) ? masterData.categories[roleId] : [];
@@ -214,7 +212,6 @@ export default function App() {
   // RESTORE LOGIN SESSION INSTAN (ANTI-REFRESH) & FIRESTORE
   // =====================================================
   useEffect(() => {
-    // 1. Cek Sesi Penyimpanan Lokal Perangkat Secara Agresif
     const savedUser = localStorage.getItem('bufn2_user_session');
     if (savedUser) {
       try { setCurrentUser(JSON.parse(savedUser)); } 
@@ -222,7 +219,6 @@ export default function App() {
     }
     setIsCheckingSession(false);
 
-    // 2. Buat koneksi Firebase Cloud
     const unsubAuth = onAuthStateChanged(auth, async (userObj) => {
       if (!userObj) try { await signInAnonymously(auth); } catch (e) { console.error(e); }
     });
@@ -254,7 +250,6 @@ export default function App() {
       const d = []; 
       s.forEach(doc => { 
         const data = doc.data(); 
-        // Validasi ekstra agar data yang rusak (null/undefined) tidak memicu blank
         if (data && typeof data === 'object') d.push(data); 
       }); 
       setPersonnel(d); 
@@ -290,7 +285,6 @@ export default function App() {
   // =====================================================
   const handleLoginSubmit = (e) => {
     e.preventDefault();
-    // Membersihkan spasi nyasar dan menyeragamkan huruf
     const cleanUsername = String(loginForm.idKaryawan).trim().toLowerCase();
     const cleanPassword = String(loginForm.password).trim();
 
@@ -305,7 +299,6 @@ export default function App() {
       return;
     }
 
-    // Pengecekan data Karyawan Ekstra Ketat
     const foundUser = personnel.find(p => {
       const dbUser = String(p?.idKaryawan || '').trim().toLowerCase();
       const dbPass = String(p?.password || '').trim();
@@ -433,7 +426,6 @@ export default function App() {
     const empData = weeklyData[empId] || {}; const total = {};
     getActiveCategories(role).forEach(c => { if(c?.key) total[c.key] = 0; });
     
-    // Perlindungan ekstra jika Firebase mengembalikan struktur yang aneh
     Object.values(empData).forEach(weekData => { 
       if (weekData && typeof weekData === 'object') {
         getActiveCategories(role).forEach(c => { 
@@ -814,7 +806,7 @@ export default function App() {
                           <div>
                             <span className="bg-amber-900/60 text-white text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest border border-amber-800/30">Karyawan Terbaik Global</span>
                             <h3 className="text-2xl font-black mt-3 tracking-wide shadow-sm">{yearlyRecapData?.globalBest?.nama || 'Unknown'}</h3>
-                            <p className="text-amber-100 text-xs mt-1.5 font-medium">Penempatan: <b>{yearlyRecapData?.globalBest?.area || 'Unknown'}</b> | Jabatan: <b>{safeRoles.find(r=>r?.id===selectedRoleContext)?.name || 'Unknown'}</b></p>
+                            <p className="text-amber-100 text-xs mt-1.5 font-medium">Penempatan: <b>{yearlyRecapData?.globalBest?.area || 'Unknown'}</b> | Jabatan: <b>{safeRoles.find(r=>r.id===selectedRoleContext)?.name || 'Unknown'}</b></p>
                           </div>
                         </div>
                         <div className="bg-white/10 px-6 py-4 rounded-2xl border border-white/20 text-center shadow-inner w-full md:w-auto relative z-10 backdrop-blur-sm">
@@ -1108,7 +1100,7 @@ export default function App() {
                       <button onClick={handleAddArea} className="bg-emerald-600 hover:bg-emerald-500 px-8 py-3.5 md:py-0 rounded-xl text-white font-bold text-sm shadow-lg transition-all active:scale-95">Tambahkan</button>
                     </div>
                     <div className="flex flex-wrap gap-3">
-                      {safeAreas.map(area => (
+                      {(safeAreas || []).map(area => (
                         <div key={area || Math.random()} className="bg-slate-800 px-4 py-2.5 rounded-xl flex items-center gap-3 text-sm font-bold text-emerald-300 border border-slate-600 shadow-sm">
                           {area} <button onClick={() => handleDeleteArea(area)} className="text-slate-400 hover:text-white bg-slate-900 hover:bg-red-500 p-1.5 rounded-lg transition-colors border border-slate-700"><Trash2 size={14}/></button>
                         </div>
