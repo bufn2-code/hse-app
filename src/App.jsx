@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Database, ClipboardPaste, CheckCircle, Table, Trash2, Edit, AlertTriangle, 
   Download, Search, LayoutDashboard, Calendar, TrendingDown, Settings, 
-  Plus, XCircle, Award, Medal, UserCheck, Lock, User, LogOut, Smartphone, Shield, X
+  Plus, XCircle, Award, Medal, UserCheck, Lock, User, LogOut, Smartphone, Shield
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
@@ -27,7 +27,9 @@ const app = initializeApp(getFirebaseConfig());
 const auth = getAuth(app);
 const db = getFirestore(app);
 
+// =====================================================
 // MASTER DATA DEFAULT
+// =====================================================
 const defaultSettings = {
   areas: ['Smelter C', 'Smelter E', 'Smelter F'], 
   roles: [
@@ -82,6 +84,7 @@ export default function App() {
   const [loginForm, setLoginForm] = useState({ idKaryawan: '', password: '' });
   const [activeTab, setActiveTab] = useState('dashboard');
   const [dashboardMode, setDashboardMode] = useState('bulanan'); 
+  const [activeSettingTab, setActiveSettingTab] = useState('akun'); // State untuk sub-menu Pengaturan
   const [selectedPeriod, setSelectedPeriod] = useState(getCurrentMonth());
   const [user, setUser] = useState(null);
   const [isDbReady, setIsDbReady] = useState(false);
@@ -153,23 +156,19 @@ export default function App() {
   // 1. SISTEM JEBAKAN TOMBOL KEMBALI HP (EXIT MODAL TRAP)
   // =====================================================
   useEffect(() => {
-    // Memasang "state palsu" ke browser agar tidak langsung keluar
     window.history.pushState({ noBackExitsApp: true }, '');
-
     const handlePopState = (e) => {
       e.preventDefault();
-      setShowExitModal(true); // Memunculkan konfirmasi keluar
-      // Memasang kembali state palsu agar jika user batal, sistem tetap menjebak
+      setShowExitModal(true); 
       window.history.pushState({ noBackExitsApp: true }, ''); 
     };
-
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
   const confirmExitApp = () => {
     setShowExitModal(false);
-    window.history.go(-2); // Melepas jebakan dan keluar aplikasi
+    window.history.go(-2); 
     setTimeout(() => { window.close(); }, 100);
   };
 
@@ -184,7 +183,6 @@ export default function App() {
     };
     window.addEventListener('beforeinstallprompt', handleInstallPrompt);
     
-    // Trik memunculkan banner bagi pengguna HP yg telat deteksi
     const hasSeenPopup = localStorage.getItem('bufn2_install_prompt');
     if (!hasSeenPopup) {
       setTimeout(() => setShowInstallPopup(true), 3000);
@@ -208,10 +206,9 @@ export default function App() {
   };
 
   // =====================================================
-  // 3. FIRESTORE SYNC (DENGAN TIMEOUT ANTI-BLANK)
+  // 3. FIRESTORE SYNC INITIALIZER
   // =====================================================
   useEffect(() => {
-    // Jangan menghalangi render UI, set true awal
     const unsubAuth = onAuthStateChanged(auth, async (userObj) => {
       if (!userObj) {
         try { await signInAnonymously(auth); } catch (e) { console.error("Koneksi ditolak HP:", e); }
@@ -246,7 +243,6 @@ export default function App() {
     });
     unsubs.push(unsubPersonnel);
 
-    // Timeout proteksi: Jika inet jelek, paksakan layar Login muncul dlm 3 dtk
     const timeoutDb = setTimeout(() => setIsDbReady(true), 3000);
 
     return () => { unsubAuth(); unsubs.forEach(u => u()); clearTimeout(timeoutDb); };
@@ -275,7 +271,9 @@ export default function App() {
     }
   }, [activeTab, dashboardMode, selectedPeriod, personnel, selectedRoleContext]);
 
+  // =====================================================
   // LOGIN SYSTEM
+  // =====================================================
   const handleLoginSubmit = (e) => {
     e.preventDefault();
     const username = loginForm.idKaryawan.trim();
@@ -306,7 +304,9 @@ export default function App() {
     showToast("Berhasil keluar.");
   };
 
-  // OPERASIONAL KARYAWAN & MASTER
+  // =====================================================
+  // OPERASIONAL KARYAWAN & MASTER DATA
+  // =====================================================
   const saveMasterData = async (newData) => {
     try { await setDoc(doc(db, 'artifacts', getAppId(), 'settings', 'master'), newData); showToast("Master data disimpan!"); } 
     catch (error) { showToast("Gagal menyimpan: " + error.message, "error"); }
@@ -339,6 +339,8 @@ export default function App() {
     updatedCategories[newCatRole].push({ key: newKey, label: newCatLabel, target: newCatType === 'target' ? Number(newCatTarget) : 0, isTargeted: newCatType === 'target' });
     saveMasterData({ ...masterData, categories: updatedCategories }); setNewCatLabel(''); setNewCatTarget(0);
   };
+
+  // --- CRUD KARYAWAN (TELAH DIPERBAIKI) ---
   const handleAddPersonnel = async (e) => {
     e.preventDefault(); if (!newEmp.nama.trim()) return showToast("Nama karyawan wajib diisi!", "error");
     try {
@@ -347,32 +349,52 @@ export default function App() {
       setNewEmp({ nama: '', area: safeAreas[0] || '', role: safeRoles[0]?.id || '' }); showToast("Karyawan baru terdaftar!");
     } catch (error) { showToast("Gagal menyimpan: " + error.message, "error"); }
   };
+
+  // FUNGSI INI KINI SUDAH ADA KEMBALI
+  const handleEditClick = (emp) => {
+    setEditingId(emp.id);
+    setEditFormData({ nama: emp.nama || '', area: emp.area || '', role: emp.role || '' });
+  };
+
   const handleSaveEdit = async () => {
     if (!editFormData.nama.trim()) return;
     try { await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', editingId), { nama: editFormData.nama, area: editFormData.area, role: editFormData.role }, { merge: true }); setEditingId(null); showToast("Profil diubah!"); } 
     catch (error) { showToast("Gagal mengubah: " + error.message, "error"); }
   };
+
   const confirmDelete = async () => {
     try { await deleteDoc(doc(db, 'artifacts', getAppId(), 'personnel', deleteModal.id)); setDeleteModal({ show: false, id: null, nama: '' }); showToast("Data dihapus permanen!"); } 
     catch (error) { showToast("Gagal menghapus: " + error.message, "error"); }
   };
+
+  // FUNGSI INI KINI SUDAH ADA KEMBALI (Khusus Pengaturan Sandi)
+  const handleEditCredClick = (emp) => {
+    setEditingCredId(emp.id);
+    setCredFormData({ idKaryawan: emp.idKaryawan || '', password: emp.password || '' });
+  };
+
   const handleSaveCred = async () => {
     try { await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', editingCredId), credFormData, { merge: true }); setEditingCredId(null); showToast("Akses Login diperbarui!"); } 
     catch (error) { showToast("Gagal mengubah akses: " + error.message, "error"); }
   };
   
-  // PASTE DATA GLOBAL
+  // =====================================================
+  // DATA PASTE EXCEL (AUTO-DETECT GLOBAL)
+  // =====================================================
   const handleProcessPaste = async () => {
     if (!pasteText.trim()) return showToast('Teks paste kosong!', 'error');
     const lines = pasteText.split('\n');
     const counts = {}; let lineTotal = 0;
+
     lines.forEach(line => {
       const parts = line.split('\t').map(p => p.trim()).filter(p => p !== '');
       if (parts.length < 1) return;
       const namaPaste = parts[0].toLowerCase();
       counts[namaPaste] = (counts[namaPaste] || 0) + 1; lineTotal++;
     });
+
     const updates = {}; let matchedCount = 0; let notFoundNames = [];
+
     Object.keys(counts).forEach(namaKey => {
       const emp = personnel.find(p => p.nama.toLowerCase() === namaKey);
       if (emp) {
@@ -383,6 +405,7 @@ export default function App() {
         matchedCount++;
       } else { notFoundNames.push(namaKey); }
     });
+
     try {
       for (const empId of Object.keys(updates)) { await setDoc(doc(db, 'artifacts', getAppId(), `weekly_${selectedPeriod}`, empId), updates[empId], { merge: true }); }
       setPasteText(''); showToast(`Berhasil merekap ${lineTotal} data!`);
@@ -394,7 +417,9 @@ export default function App() {
     try { await setDoc(doc(db, 'artifacts', getAppId(), `monthly_${selectedPeriod}`, empId), { [field]: value }, { merge: true }); } catch (error) { console.error(error); }
   };
 
-  // ENGINE MATEMATIKA KPI
+  // =====================================================
+  // ENGINE LOGIKA RUMUS MATEMATIKA KPI
+  // =====================================================
   const getAccumulatedData = (empId, role) => {
     const empData = weeklyData[empId] || {}; const total = {};
     getActiveCategories(role).forEach(c => total[c.key] = 0);
@@ -919,19 +944,81 @@ export default function App() {
               </div>
             )}
 
-            {/* --- TAB PENGATURAN (ONLY ADMIN) --- */}
+            {/* --- TAB PENGATURAN SUB-TABS (ONLY ADMIN) --- */}
             {activeTab === 'pengaturan' && currentUser.role === 'Admin' && (
               <div className="bg-slate-800 p-5 md:p-8 rounded-2xl shadow-xl border border-slate-700 text-slate-200">
-                <h2 className="font-bold text-xl md:text-2xl mb-2 text-white flex items-center gap-2"><Settings /> Pengaturan Sistem Utama</h2>
-                <p className="text-xs md:text-sm text-slate-400 mb-8 border-b border-slate-700 pb-4">Perubahan di sini akan secara radikal mengubah kerangka logika dan tampilan seluruh dashboard. Harap berhati-hati.</p>
-                
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
-                  {/* KOLOM MANAJEMEN SMELTER */}
-                  <div className="bg-slate-900 p-5 md:p-6 rounded-2xl border border-slate-700 h-fit lg:col-span-1 shadow-inner">
-                    <h3 className="font-bold text-white mb-4 flex items-center gap-2 text-sm uppercase tracking-wider">Manajemen Smelter / Area</h3>
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                  <div>
+                    <h2 className="font-bold text-2xl text-white flex items-center gap-2"><Settings /> Pengaturan Sistem</h2>
+                    <p className="text-sm text-slate-400 mt-1">Kelola data master dan hak akses sistem.</p>
+                  </div>
+                </div>
+
+                {/* SUB-MENU TABS */}
+                <div className="flex gap-2 border-b border-slate-700 pb-4 mb-6 overflow-x-auto [&::-webkit-scrollbar]:hidden">
+                  <button onClick={() => setActiveSettingTab('akun')} className={`px-5 py-2.5 text-sm font-bold rounded-xl whitespace-nowrap transition-all ${activeSettingTab === 'akun' ? 'bg-emerald-600 text-white shadow-md' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>1. Akses Login User</button>
+                  <button onClick={() => setActiveSettingTab('smelter')} className={`px-5 py-2.5 text-sm font-bold rounded-xl whitespace-nowrap transition-all ${activeSettingTab === 'smelter' ? 'bg-emerald-600 text-white shadow-md' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>2. Manajemen Smelter</button>
+                  <button onClick={() => setActiveSettingTab('kpi')} className={`px-5 py-2.5 text-sm font-bold rounded-xl whitespace-nowrap transition-all ${activeSettingTab === 'kpi' ? 'bg-emerald-600 text-white shadow-md' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>3. Indikator KPI</button>
+                </div>
+
+                {/* SUB-TAB 1: MANAJEMEN AKSES LOGIN KARYAWAN */}
+                {activeSettingTab === 'akun' && (
+                  <div className="bg-slate-900 p-5 md:p-8 rounded-3xl border border-slate-700 shadow-inner relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 rounded-full blur-3xl"></div>
+                    <div className="flex flex-col md:flex-row justify-between md:items-end gap-4 mb-6 border-b border-slate-700 pb-5 relative z-10">
+                      <div>
+                        <h3 className="font-black text-white text-lg flex items-center gap-2 mb-1"><Shield size={22} className="text-emerald-400"/> Kredensial Login User</h3>
+                        <p className="text-xs text-slate-400">Pusat kendali Username dan Password staf.</p>
+                      </div>
+                      <div className="relative w-full md:w-72">
+                        <Search size={16} className="absolute left-3 top-3 text-slate-400" />
+                        <input type="text" placeholder="Cari karyawan..." className="pl-10 pr-3 py-2.5 bg-slate-800 border border-slate-600 rounded-xl text-sm text-white focus:ring-emerald-500 w-full outline-none" value={credSearchQuery} onChange={e => setCredSearchQuery(e.target.value)} />
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto border border-slate-700 rounded-2xl shadow-lg relative z-10 bg-slate-800/50 max-h-[400px]">
+                      <table className="w-full text-left text-sm text-slate-300 whitespace-nowrap">
+                        <thead className="bg-slate-800 text-slate-200 sticky top-0 shadow-sm z-20">
+                          <tr><th className="p-4 border-b border-slate-700">Profil Karyawan</th><th className="p-4 border-b border-slate-700 text-center">ID Karyawan (Username)</th><th className="p-4 border-b border-slate-700 text-center">Password</th><th className="p-4 border-b border-slate-700 text-center">Aksi</th></tr>
+                        </thead>
+                        <tbody>
+                          {credSearchResult.length === 0 ? (
+                            <tr><td colSpan="4" className="p-10 text-center text-slate-500 italic">Karyawan tidak ditemukan.</td></tr>
+                          ) : (
+                            credSearchResult.map(p => (
+                              <tr key={p.id} className="border-b border-slate-700/50 hover:bg-slate-700/30 transition-colors">
+                                <td className="p-4">
+                                  <span className="font-bold text-white text-base block">{p.nama}</span> 
+                                  <span className="inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded bg-slate-700 text-emerald-400 uppercase tracking-wider border border-slate-600">{p.area} • {safeRoles.find(r=>r.id===p.role)?.name || p.role}</span>
+                                </td>
+                                {editingCredId === p.id ? (
+                                  <>
+                                    <td className="p-3 align-middle"><div className="flex justify-center"><input type="text" placeholder="Buat Username" className="bg-slate-900 border border-emerald-500/50 rounded-lg p-2.5 w-full md:w-3/4 text-white text-sm font-mono focus:ring-emerald-500 outline-none text-center shadow-inner" value={credFormData.idKaryawan} onChange={(e) => setCredFormData({...credFormData, idKaryawan: e.target.value})} /></div></td>
+                                    <td className="p-3 align-middle"><div className="flex justify-center"><input type="text" placeholder="Buat Password" className="bg-slate-900 border border-emerald-500/50 rounded-lg p-2.5 w-full md:w-3/4 text-white text-sm focus:ring-emerald-500 outline-none text-center shadow-inner" value={credFormData.password} onChange={(e) => setCredFormData({...credFormData, password: e.target.value})} /></div></td>
+                                    <td className="p-3 text-center align-middle space-x-2"><button onClick={handleSaveCred} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-xs shadow-lg transition-transform active:scale-95">Simpan</button><button onClick={() => setEditingCredId(null)} className="bg-slate-600 hover:bg-slate-500 text-white px-4 py-2 rounded-lg font-bold text-xs transition-colors">Batal</button></td>
+                                  </>
+                                ) : (
+                                  <>
+                                    <td className="p-4 text-center align-middle">{p.idKaryawan ? <span className="text-emerald-300 font-mono tracking-wider bg-emerald-900/30 px-3 py-1.5 rounded-lg border border-emerald-800/50 select-all">{p.idKaryawan}</span> : <span className="text-slate-500 italic text-xs bg-slate-800 px-3 py-1 rounded-full border border-slate-700">Belum diset</span>}</td>
+                                    <td className="p-4 text-center align-middle">{p.password ? <span className="text-slate-300 font-mono bg-slate-900/50 px-3 py-1.5 rounded-lg border border-slate-700 select-all">{p.password}</span> : <span className="text-slate-500 italic text-xs bg-slate-800 px-3 py-1 rounded-full border border-slate-700">Belum diset</span>}</td>
+                                    <td className="p-4 text-center align-middle"><button onClick={() => handleEditCredClick(p)} className="text-emerald-400 hover:text-white hover:bg-emerald-600 flex items-center gap-1.5 mx-auto text-xs font-bold bg-slate-800 border border-slate-600 px-4 py-2 rounded-lg transition-all shadow-sm"><Edit size={14}/> Ubah Sandi</button></td>
+                                  </>
+                                )}
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* SUB-TAB 2: MANAJEMEN SMELTER */}
+                {activeSettingTab === 'smelter' && (
+                  <div className="bg-slate-900 p-5 md:p-6 rounded-3xl border border-slate-700 shadow-inner">
+                    <h3 className="font-bold text-white mb-4 flex items-center gap-2 text-sm uppercase tracking-wider">Daftar Smelter / Area</h3>
                     <div className="flex gap-2 mb-6">
                       <input type="text" placeholder="Misal: Smelter G" className="flex-1 bg-slate-800 border border-slate-600 rounded-xl p-3 text-sm text-white focus:ring-emerald-500" value={newArea} onChange={e=>setNewArea(e.target.value)} />
-                      <button onClick={handleAddArea} className="bg-emerald-600 hover:bg-emerald-500 px-4 rounded-xl text-white font-bold text-sm shadow"><Plus size={18}/></button>
+                      <button onClick={handleAddArea} className="bg-emerald-600 hover:bg-emerald-500 px-6 rounded-xl text-white font-bold text-sm shadow">Tambah</button>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {safeAreas.map(area => (
@@ -941,29 +1028,28 @@ export default function App() {
                       ))}
                     </div>
                   </div>
+                )}
 
-                  {/* KOLOM MANAJEMEN INDIKATOR */}
-                  <div className="bg-slate-900 p-5 md:p-6 rounded-2xl border border-slate-700 lg:col-span-2 shadow-inner">
-                    <h3 className="font-bold text-white mb-4 text-sm uppercase tracking-wider">Manajemen Indikator & Target</h3>
-                    <div className="grid grid-cols-1 gap-6 mb-8">
+                {/* SUB-TAB 3: MANAJEMEN INDIKATOR & TARGET KPI */}
+                {activeSettingTab === 'kpi' && (
+                  <div className="bg-slate-900 p-5 md:p-6 rounded-3xl border border-slate-700 shadow-inner">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                       {safeRoles.filter(r => r.id === 'SO' || r.id === 'WFSO').map(r => (
                         <div key={r.id} className="bg-slate-800 p-5 rounded-2xl border border-slate-600">
-                          <h4 className="font-bold text-emerald-400 mb-4 border-b border-slate-700 pb-3 flex items-center gap-2"><span>Indikator Role: {r.name}</span></h4>
+                          <h4 className="font-bold text-emerald-400 mb-4 border-b border-slate-700 pb-3 flex items-center gap-2"><span>KPI {r.name}</span></h4>
                           <div className="overflow-x-auto">
                             <table className="w-full text-left text-sm mb-2 whitespace-nowrap">
-                              <thead><tr className="text-slate-400 border-b border-slate-700"><th className="pb-3 px-1">Nama Indikator</th><th className="pb-3 text-center px-1">Tipe Aturan</th><th className="pb-3 text-center px-1">Target</th><th className="pb-3 text-center px-1">Hapus</th></tr></thead>
+                              <thead><tr className="text-slate-400 border-b border-slate-700"><th className="pb-3 px-1">Indikator</th><th className="pb-3 text-center px-1">Tipe</th><th className="pb-3 text-center px-1">Target</th><th className="pb-3 text-center px-1">Aksi</th></tr></thead>
                               <tbody>
                                 {masterData.categories?.[r.id]?.map((cat, index) => (
                                   <tr key={cat.key} className="border-b border-slate-700/50 last:border-0">
                                     <td className="py-3 pr-2"><input type="text" className="bg-slate-700 border border-slate-600 rounded-lg p-2 w-full text-white text-xs focus:ring-emerald-500" value={cat.label} onChange={(e) => handleUpdateCategory(r.id, index, 'label', e.target.value)} /></td>
                                     <td className="py-3 px-2 text-center">
                                       <select className="bg-slate-700 border border-slate-600 rounded-lg p-2 text-white text-xs focus:ring-emerald-500" value={cat.isTargeted} onChange={(e) => handleUpdateCategory(r.id, index, 'isTargeted', e.target.value === 'true')}>
-                                        <option value="true">Target Utama</option><option value="false">Extra Poin</option>
+                                        <option value="true">Utama</option><option value="false">Extra</option>
                                       </select>
                                     </td>
-                                    <td className="py-3 px-2 text-center">
-                                      <input type="number" disabled={!cat.isTargeted} className={`w-16 bg-slate-700 border border-slate-600 rounded-lg p-2 text-center text-xs font-bold text-white focus:ring-emerald-500 ${!cat.isTargeted && 'opacity-30'}`} value={cat.target} onChange={(e) => handleUpdateCategory(r.id, index, 'target', e.target.value)} />
-                                    </td>
+                                    <td className="py-3 px-2 text-center"><input type="number" disabled={!cat.isTargeted} className={`w-16 bg-slate-700 border border-slate-600 rounded-lg p-2 text-center text-xs font-bold text-white focus:ring-emerald-500 ${!cat.isTargeted && 'opacity-30'}`} value={cat.target} onChange={(e) => handleUpdateCategory(r.id, index, 'target', e.target.value)} /></td>
                                     <td className="py-3 pl-2 text-center"><button onClick={() => handleDeleteCategory(r.id, index)} className="text-red-400 hover:text-white hover:bg-red-500 p-2 rounded-lg transition-colors"><Trash2 size={16}/></button></td>
                                   </tr>
                                 ))}
@@ -977,16 +1063,12 @@ export default function App() {
                     <div className="bg-slate-800 p-5 rounded-2xl border border-emerald-700/50 shadow-lg">
                       <h4 className="font-bold text-white mb-4 text-sm flex items-center gap-2 uppercase tracking-wide"><Plus size={16} className="text-emerald-400"/> Tambah Indikator Baru</h4>
                       <div className="flex flex-col md:flex-row gap-3 items-start md:items-end">
-                        <div className="w-full md:flex-1"><label className="block text-[10px] text-slate-400 font-bold uppercase mb-1.5">Pilih Jabatan</label>
-                          <select className="w-full bg-slate-700 border border-slate-600 rounded-xl p-2.5 text-white text-sm focus:ring-emerald-500" value={newCatRole} onChange={e=>setNewCatRole(e.target.value)}>
-                            {safeRoles.filter(r => r.id === 'SO' || r.id === 'WFSO').map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                          </select>
+                        <div className="w-full md:flex-1"><label className="block text-[10px] text-slate-400 font-bold uppercase mb-1.5">Jabatan</label>
+                          <select className="w-full bg-slate-700 border border-slate-600 rounded-xl p-2.5 text-white text-sm focus:ring-emerald-500" value={newCatRole} onChange={e=>setNewCatRole(e.target.value)}>{safeRoles.filter(r => r.id === 'SO' || r.id === 'WFSO').map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select>
                         </div>
                         <div className="w-full md:flex-1"><label className="block text-[10px] text-slate-400 font-bold uppercase mb-1.5">Nama Indikator</label><input type="text" placeholder="Misal: Patroli" className="w-full bg-slate-700 border border-slate-600 rounded-xl p-2.5 text-white text-sm focus:ring-emerald-500" value={newCatLabel} onChange={e=>setNewCatLabel(e.target.value)} /></div>
                         <div className="w-full md:w-32"><label className="block text-[10px] text-slate-400 font-bold uppercase mb-1.5">Tipe</label>
-                          <select className="w-full bg-slate-700 border border-slate-600 rounded-xl p-2.5 text-white text-sm focus:ring-emerald-500" value={newCatType} onChange={e=>setNewCatType(e.target.value)}>
-                            <option value="target">Utama</option><option value="extra">Extra Poin</option>
-                          </select>
+                          <select className="w-full bg-slate-700 border border-slate-600 rounded-xl p-2.5 text-white text-sm focus:ring-emerald-500" value={newCatType} onChange={e=>setNewCatType(e.target.value)}><option value="target">Utama</option><option value="extra">Extra Poin</option></select>
                         </div>
                         {newCatType === 'target' && (
                           <div className="w-full md:w-24"><label className="block text-[10px] text-slate-400 font-bold uppercase mb-1.5">Target</label><input type="number" className="w-full bg-slate-700 border border-slate-600 rounded-xl p-2.5 text-white text-sm font-bold focus:ring-emerald-500" value={newCatTarget} onChange={e=>setNewCatTarget(e.target.value)} /></div>
@@ -995,85 +1077,34 @@ export default function App() {
                       </div>
                     </div>
                   </div>
-                </div>
-
-                {/* MANAJEMEN AKSES LOGIN KARYAWAN (KHUSUS ADMIN) */}
-                <div className="mt-10 bg-slate-900 p-5 md:p-8 rounded-3xl border border-slate-700 shadow-inner relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 rounded-full blur-3xl"></div>
-                  
-                  <div className="flex flex-col md:flex-row justify-between md:items-end gap-4 mb-6 border-b border-slate-700 pb-5 relative z-10">
-                    <div>
-                      <h3 className="font-black text-white text-lg flex items-center gap-2 mb-1">
-                        <Shield size={22} className="text-emerald-400"/> Manajemen Akses Login User
-                      </h3>
-                      <p className="text-xs text-slate-400">Pusat kendali Username dan Password seluruh staf lapangan.</p>
-                    </div>
-                    <div className="relative w-full md:w-72">
-                      <Search size={16} className="absolute left-3 top-3 text-slate-400" />
-                      <input type="text" placeholder="Cari karyawan..." className="pl-10 pr-3 py-2.5 bg-slate-800 border border-slate-600 rounded-xl text-sm text-white focus:ring-emerald-500 w-full outline-none" value={credSearchQuery} onChange={e => setCredSearchQuery(e.target.value)} />
-                    </div>
-                  </div>
-                  
-                  <div className="overflow-x-auto border border-slate-700 rounded-2xl shadow-lg relative z-10 bg-slate-800/50 max-h-[500px]">
-                    <table className="w-full text-left text-sm text-slate-300 whitespace-nowrap">
-                      <thead className="bg-slate-800 text-slate-200 sticky top-0 shadow-sm z-20">
-                        <tr>
-                          <th className="p-4 border-b border-slate-700">Profil Karyawan</th>
-                          <th className="p-4 border-b border-slate-700 text-center">ID Karyawan (Username)</th>
-                          <th className="p-4 border-b border-slate-700 text-center">Password</th>
-                          <th className="p-4 border-b border-slate-700 text-center">Aksi Hak Akses</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {credSearchResult.length === 0 ? (
-                          <tr><td colSpan="4" className="p-10 text-center text-slate-500 italic">Karyawan tidak ditemukan.</td></tr>
-                        ) : (
-                          credSearchResult.map(p => (
-                            <tr key={p.id} className="border-b border-slate-700/50 hover:bg-slate-700/30 transition-colors">
-                              <td className="p-4">
-                                <span className="font-bold text-white text-base block">{p.nama}</span> 
-                                <span className="inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded bg-slate-700 text-emerald-400 uppercase tracking-wider border border-slate-600">{p.area} • {safeRoles.find(r=>r.id===p.role)?.name || p.role}</span>
-                              </td>
-                              
-                              {editingCredId === p.id ? (
-                                <>
-                                  <td className="p-3 align-middle">
-                                    <div className="flex justify-center"><input type="text" placeholder="Buat Username" className="bg-slate-900 border border-emerald-500/50 rounded-lg p-2.5 w-full md:w-3/4 text-white text-sm font-mono focus:ring-emerald-500 outline-none text-center shadow-inner" value={credFormData.idKaryawan} onChange={(e) => setCredFormData({...credFormData, idKaryawan: e.target.value})} /></div>
-                                  </td>
-                                  <td className="p-3 align-middle">
-                                    <div className="flex justify-center"><input type="text" placeholder="Buat Password" className="bg-slate-900 border border-emerald-500/50 rounded-lg p-2.5 w-full md:w-3/4 text-white text-sm focus:ring-emerald-500 outline-none text-center shadow-inner" value={credFormData.password} onChange={(e) => setCredFormData({...credFormData, password: e.target.value})} /></div>
-                                  </td>
-                                  <td className="p-3 text-center align-middle space-x-2">
-                                    <button onClick={handleSaveCred} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-xs shadow-lg transition-transform active:scale-95">Simpan</button>
-                                    <button onClick={() => setEditingCredId(null)} className="bg-slate-600 hover:bg-slate-500 text-white px-4 py-2 rounded-lg font-bold text-xs transition-colors">Batal</button>
-                                  </td>
-                                </>
-                              ) : (
-                                <>
-                                  <td className="p-4 text-center align-middle">
-                                    {p.idKaryawan ? <span className="text-emerald-300 font-mono tracking-wider bg-emerald-900/30 px-3 py-1.5 rounded-lg border border-emerald-800/50 select-all">{p.idKaryawan}</span> : <span className="text-slate-500 italic text-xs bg-slate-800 px-3 py-1 rounded-full border border-slate-700">Belum diset</span>}
-                                  </td>
-                                  <td className="p-4 text-center align-middle">
-                                    {p.password ? <span className="text-slate-300 font-mono bg-slate-900/50 px-3 py-1.5 rounded-lg border border-slate-700 select-all">{p.password}</span> : <span className="text-slate-500 italic text-xs bg-slate-800 px-3 py-1 rounded-full border border-slate-700">Belum diset</span>}
-                                  </td>
-                                  <td className="p-4 text-center align-middle">
-                                    <button onClick={() => handleEditCredClick(p)} className="text-emerald-400 hover:text-white hover:bg-emerald-600 flex items-center gap-1.5 mx-auto text-xs font-bold bg-slate-800 border border-slate-600 px-4 py-2 rounded-lg transition-all shadow-sm">
-                                      <Edit size={14}/> Ubah Sandi
-                                    </button>
-                                  </td>
-                                </>
-                              )}
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+                )}
               </div>
             )}
           </main>
         </>
+      )}
+
+      {/* COMPONENT MODAL CUSTOM (ERROR TYPO EXCEL) */}
+      {pasteErrors.length > 0 && (
+        <div className="fixed inset-0 bg-slate-900/75 flex items-center justify-center z-[110] p-4 transition-opacity">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+            <div className="flex items-center gap-3 mb-4 text-red-600 border-b pb-2">
+              <AlertTriangle size={28} />
+              <h3 className="text-lg font-bold">Nama Tidak Terdaftar!</h3>
+            </div>
+            <p className="text-sm text-slate-600 mb-4 font-sans">
+              Beberapa nama dari excel di bawah ini <b>gagal diinput</b> karena tidak ditemukan atau salah ketik (*typo*). Pastikan ejaan nama sama persis dengan menu Karyawan:
+            </p>
+            <div className="bg-slate-100 p-3 rounded border border-slate-200 max-h-48 overflow-y-auto mb-6">
+              <ul className="list-disc pl-5 text-xs text-slate-700 font-mono space-y-1">
+                {pasteErrors.map((name, i) => <li key={i} className="capitalize">{name}</li>)}
+              </ul>
+            </div>
+            <button onClick={() => setPasteErrors([])} className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 rounded-lg shadow text-sm transition-colors">
+              Tutup & Evaluasi Nama
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
