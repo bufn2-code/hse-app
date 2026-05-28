@@ -46,7 +46,9 @@ const app = initializeApp(getFirebaseConfig());
 const auth = getAuth(app);
 const db = getFirestore(app);
 
+// =====================================================
 // MASTER DATA DEFAULT
+// =====================================================
 const defaultSettings = {
   areas: ['Smelter C', 'Smelter E', 'Smelter F'], 
   roles: [
@@ -199,11 +201,10 @@ export default function App() {
     const handleInstallPrompt = (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
-      setShowInstallPopup(true); // Tampilkan popup kustom
+      setShowInstallPopup(true); 
     };
     window.addEventListener('beforeinstallprompt', handleInstallPrompt);
     
-    // Fallback otomatis memancing popup untuk pengguna HP baru pertama kali buka
     const hasSeenPopup = localStorage.getItem('bufn2_install_prompt');
     if (!hasSeenPopup) {
       setTimeout(() => setShowInstallPopup(true), 5000);
@@ -214,7 +215,6 @@ export default function App() {
 
   const triggerNativeInstall = async () => {
     if (!deferredPrompt) {
-      // Jika browser tidak mendukung native prompt (seperti iOS), beri info cara manual
       showToast("Ikuti panduan unduh manual di bawah layar!", "error");
       return;
     }
@@ -228,10 +228,13 @@ export default function App() {
     setShowInstallPopup(false);
   };
 
+  // =====================================================
   // FIRESTORE SYNC INITIALIZER
+  // =====================================================
   useEffect(() => {
     setIsDbReady(false);
     const unsubs = [];
+    
     const syncDatabase = async () => {
       try {
         await signInAnonymously(auth);
@@ -290,7 +293,15 @@ export default function App() {
     if (currentUser && !isManager) setSelectedRoleContext(currentUser.role);
   }, [currentUser, isManager]);
 
+  useEffect(() => {
+    if (activeTab === 'dashboard' && dashboardMode === 'tahunan' && personnel.length > 0) {
+      calculateYearlyBest();
+    }
+  }, [activeTab, dashboardMode, selectedPeriod, personnel, selectedRoleContext]);
+
+  // =====================================================
   // LOGIN INTERCEPTOR EXECUTER
+  // =====================================================
   const handleLoginSubmit = (e) => {
     e.preventDefault();
     const username = loginForm.idKaryawan.trim();
@@ -321,7 +332,9 @@ export default function App() {
     showToast("Berhasil keluar.");
   };
 
-  // --- LOGIKA MASTER DATA ---
+  // =====================================================
+  // OPERASIONAL MASTER DATA
+  // =====================================================
   const saveMasterData = async (newData) => {
     try {
       await setDoc(doc(db, 'artifacts', getAppId(), 'settings', 'master'), newData);
@@ -370,7 +383,9 @@ export default function App() {
     setNewCatLabel(''); setNewCatTarget(0);
   };
 
-  // --- LOGIKA MANAGEMENT KARYAWAN DENGAN INTEGRASI ANTI-CRASH BANNER ---
+  // =====================================================
+  // OPERASIONAL KARYAWAN
+  // =====================================================
   const handleAddPersonnel = async (e) => {
     e.preventDefault();
     if (!newEmp.nama.trim() || !newEmp.idKaryawan.trim() || !newEmp.password.trim()) {
@@ -379,7 +394,6 @@ export default function App() {
     try {
       const newId = Date.now().toString() + Math.random().toString(36).substr(2, 5);
       await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', newId), { ...newEmp, id: newId });
-      // Reset form secara aman tanpa crash membaca array kosong
       setNewEmp({ nama: '', area: safeAreas[0] || '', role: safeRoles[0]?.id || '', idKaryawan: '', password: '' });
       showToast("Karyawan baru berhasil terdaftar!");
     } catch (error) { showToast("Gagal menyimpan: " + error.message, "error"); }
@@ -402,7 +416,9 @@ export default function App() {
     } catch (error) { showToast("Gagal menghapus: " + error.message, "error"); }
   };
 
-  // --- DATA PASTE EXCEL ---
+  // =====================================================
+  // DATA PASTE EXCEL (AUTO-DETECT GLOBAL)
+  // =====================================================
   const handleProcessPaste = async () => {
     if (!pasteText.trim()) return showToast('Teks paste kosong!', 'error');
     const lines = pasteText.split('\n');
@@ -441,6 +457,19 @@ export default function App() {
 
   const handleMonthlyInput = async (empId, field, value) => {
     try { await setDoc(doc(db, 'artifacts', getAppId(), `monthly_${selectedPeriod}`, empId), { [field]: value }, { merge: true }); } catch (error) { console.error(error); }
+  };
+
+  // =====================================================
+  // ENGINE LOGIKA RUMUS MATEMATIKA KPI (AKURAT 100%)
+  // =====================================================
+  const getAccumulatedData = (empId, role) => {
+    const empData = weeklyData[empId] || {};
+    const total = {};
+    getActiveCategories(role).forEach(c => total[c.key] = 0);
+    Object.values(empData).forEach(weekData => {
+      getActiveCategories(role).forEach(c => { total[c.key] += (weekData[c.key] || 0); });
+    });
+    return total;
   };
 
   const calculateScore = (acc, um, roleId) => {
@@ -518,22 +547,133 @@ export default function App() {
     } catch (e) { console.error(e); } finally { setLoadingYearly(false); }
   };
 
-  // --- ACCESS CONTROL FILTER MATRIKS (RBAC) ---
+  const getDefisitTarget = () => {
+    let defisit = [];
+    let targetPersonnel = personnel.filter(p => p.role === selectedRoleContext);
+    
+    // Karyawan biasa tidak bisa menghitung defisit orang lain
+    if (!isManager) {
+      targetPersonnel = targetPersonnel.filter(p => p.id === currentUser.id);
+    }
+
+    targetPersonnel.forEach(p => {
+      const acc = getAccumulatedData(p.id, p.role);
+      getActiveCategories(p.role).filter(c => c.isTargeted).forEach(c => {
+        const tercapai = acc[c.key] || 0;
+        if (tercapai < c.target) {
+          defisit.push({ id: p.id + c.key, nama: p.nama, area: p.area, indikator: c.label, tercapai, target: c.target, kurang: c.target - tercapai });
+        }
+      });
+    });
+    return defisit.sort((a, b) => b.kurang - a.kurang);
+  };
+
+  const exportToExcel = (area, personnelList) => {
+    const cats = getActiveCategories(selectedRoleContext);
+    let csvContent = "Area,Nama,";
+    cats.forEach(c => csvContent += `"${c.label}",`);
+    csvContent += "Kepatuhan,Pelanggaran,Skor Awal,Tambahan Poin,Penalti Kepatuhan,Skor Akhir,Nilai,Keterangan\n";
+
+    personnelList.forEach(p => {
+      const acc = getAccumulatedData(p.id, p.role);
+      const um = monthlyData[p.id] || { kepatuhan: 75, pelanggaran: 0, keterangan: '' };
+      const calc = calculateScore(acc, um, p.role);
+
+      let row = `"${p.area}","${p.nama}",`;
+      cats.forEach(c => row += `"${acc[c.key]||0}",`);
+      row += `"${um.kepatuhan||75}","${um.pelanggaran||0}","${calc.sAwal.toFixed(1)}","${calc.tPoin}","${calc.penalti}","${calc.sAkhir.toFixed(1)}","${calc.grade}","${um.keterangan||''}"\n`;
+      csvContent += row;
+    });
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `Laporan_KPI_${selectedRoleContext}_${area}_${selectedPeriod}.csv`;
+    link.click();
+  };
+
+  // =====================================================
+  // FILTERING DATA MATRIKS AKSES LOGIN (RBAC)
+  // =====================================================
   const getVisibleAreas = () => {
     if (!currentUser) return [];
     if (currentUser.role === 'Admin') return safeAreas;
-    return [currentUser.area || '']; // Foreman, WFSO, dan SO hanya dikunci di area smelter masing-masing
+    return [currentUser.area || '']; 
   };
 
   const getVisiblePersonnel = (area) => {
     if (!currentUser) return [];
     let list = personnel.filter(p => p.role === selectedRoleContext && p.area === area);
-    if (!isManager) list = list.filter(p => p.id === currentUser.id); // SO hanya melihat namanya sendiri
+    if (!isManager) list = list.filter(p => p.id === currentUser.id); 
     return list;
+  };
+
+  const handleDashboardSearchChange = (area, val) => {
+    setDashboardSearch(prev => ({ ...prev, [area]: val }));
   };
 
   const searchResult = personnel.filter(p => (p.nama || '').toLowerCase().includes(searchQuery.toLowerCase()));
 
+  // =====================================================
+  // RENDER PRAMUAT & JENDELA LOGIN SEBELUM MASUK
+  // =====================================================
+  if (!isDbReady && !currentUser) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center text-emerald-500 font-bold italic animate-pulse">
+        Menghubungkan ke Server BUFN2...
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 font-sans relative overflow-hidden">
+        {toast.show && (
+          <div className="fixed top-6 right-6 z-[200] bg-red-600 text-white p-4 rounded-xl shadow-2xl flex items-center gap-2">
+            <XCircle size={20}/> <span className="text-sm font-semibold">{toast.msg}</span>
+          </div>
+        )}
+        <div className="absolute -top-40 -left-40 w-96 h-96 bg-emerald-700/20 rounded-full blur-3xl"></div>
+        <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-teal-700/20 rounded-full blur-3xl"></div>
+        
+        <div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl shadow-2xl max-w-md w-full relative z-10 animate-in fade-in zoom-in duration-300">
+          <div className="text-center mb-8">
+            <div className="bg-emerald-500/10 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-emerald-500/20">
+              <CheckCircle size={48} className="text-emerald-500" />
+            </div>
+            <h2 className="text-2xl font-black text-white tracking-tighter uppercase">KPI HSE Portal</h2>
+            <p className="text-slate-500 text-sm">Masuk untuk melihat pencapaian Smelter</p>
+          </div>
+          
+          <form onSubmit={handleLoginSubmit} className="space-y-5">
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-wider">ID Karyawan</label>
+              <div className="relative mt-1">
+                <User size={18} className="absolute left-4 top-3.5 text-slate-500" />
+                <input type="text" placeholder="Contoh: SO-001" className="w-full bg-slate-800 border border-slate-700 p-3.5 pl-12 rounded-2xl text-white outline-none focus:border-emerald-500 transition-all font-mono text-sm"
+                  value={loginForm.idKaryawan} onChange={e => setLoginForm({...loginForm, idKaryawan: e.target.value})} />
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-wider">Password</label>
+              <div className="relative mt-1">
+                <Lock size={18} className="absolute left-4 top-3.5 text-slate-500" />
+                <input type="password" placeholder="••••••••" className="w-full bg-slate-800 border border-slate-700 p-3.5 pl-12 rounded-2xl text-white outline-none focus:border-emerald-500 transition-all text-sm"
+                  value={loginForm.password} onChange={e => setLoginForm({...loginForm, password: e.target.value})} />
+              </div>
+            </div>
+            <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-4 rounded-2xl shadow-xl shadow-emerald-900/20 transition-all transform active:scale-[0.98] tracking-widest text-sm mt-2">
+              MASUK SISTEM
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // =====================================================
+  // RENDER DASHBOARD CORE SYSTEM (AUTHENTICATED)
+  // =====================================================
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800 font-sans pb-12 relative overflow-hidden">
       
@@ -546,10 +686,9 @@ export default function App() {
               <h3 className="font-black text-sm tracking-wide">Instal Aplikasi KPI HSE</h3>
               <p className="text-slate-300 text-xs mt-1 leading-relaxed">Pasang aplikasi di layar utama HP atau Laptop Anda agar loading lebih cepat, bisa diakses offline, dan tombol kembali berjalan normal.</p>
               
-              {/* Deteksi otomatis teks panduan untuk iOS vs Android */}
               {navigator.userAgent.match(/iPhone|iPad|iPod/i) ? (
                 <div className="mt-3 text-[11px] bg-emerald-950/40 text-emerald-300 p-2 rounded-lg border border-emerald-800/30">
-                  👉 <b>Khusus iPhone:</b> Tekan tombol kotak panah atas <b>'Share / Berbagi'</b> di browser, lalu geser ke bawah dan pilih <b>'Add to Home Screen / Tambah ke Layar Utama'</b>.
+                  👉 <b>Khusus iPhone:</b> Tekan tombol kotak panah atas <b>'Share'</b> di browser, lalu geser ke bawah dan pilih <b>'Add to Home Screen'</b>.
                 </div>
               ) : (
                 <button onClick={triggerNativeInstall} className="mt-4 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-xl transition-all shadow-md">Instal Sekarang</button>
@@ -590,7 +729,7 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto mt-6 px-4">
-        {/* MENU UTAMA */}
+        {/* MENU UTAMA HASH NAVIGATION */}
         <div className="flex flex-wrap space-x-1 border-b border-slate-300 mb-6">
           <button onClick={() => handleTabClick('dashboard')} className={`px-4 py-3 font-semibold rounded-t-lg transition-colors flex items-center gap-2 ${activeTab === 'dashboard' ? 'bg-white text-emerald-700 border-t-2 border-emerald-600 border-x border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}><LayoutDashboard size={18}/> Dashboard</button>
           {currentUser.role === 'Admin' && (
@@ -625,6 +764,7 @@ export default function App() {
               </div>
             )}
 
+            {/* A. VIEW MODE BULANAN */}
             {dashboardMode === 'bulanan' && (
               <div className="grid grid-cols-1 gap-6">
                 {getVisibleAreas().map(area => {
@@ -635,11 +775,18 @@ export default function App() {
                   return (
                     <div key={area} className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
                       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b pb-4 mb-4">
-                        <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2"><TrendingDown className="text-red-500" size={20} /> {area}</h3>
+                        <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                          <TrendingDown className="text-red-500" size={20} /> {area}
+                        </h3>
                         {isManager && (
-                          <div className="relative"><Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" /><input type="text" placeholder={`Cari nama...`} className="pl-8 pr-2 py-1 border rounded text-xs w-52" value={searchKey} onChange={(e) => handleDashboardSearchChange(area, e.target.value)} /></div>
+                          <div className="relative">
+                            <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
+                            <input type="text" placeholder={`Cari nama di ${area}...`} className="pl-8 pr-2 py-1 border rounded text-xs w-52 focus:ring-emerald-500"
+                              value={searchKey} onChange={(e) => handleDashboardSearchChange(area, e.target.value)} />
+                          </div>
                         )}
                       </div>
+
                       <div className="overflow-x-auto max-h-[300px] border rounded-lg shadow-inner">
                         <table className="w-full text-xs text-left">
                           <thead className="bg-slate-700 text-white sticky top-0">
@@ -647,7 +794,7 @@ export default function App() {
                           </thead>
                           <tbody>
                             {finalDefisitList.length === 0 ? (
-                              <tr><td colSpan="5" className="p-6 text-center text-slate-500 font-bold bg-slate-50">🎉 Luar biasa! Target bulan ini sudah terpenuhi semua.</td></tr>
+                              <tr><td colSpan="5" className="p-6 text-center text-slate-500 font-bold bg-slate-50">🎉 Aman! Tidak ada defisit target untuk kriteria ini.</td></tr>
                             ) : (
                               finalDefisitList.map((item) => (
                                 <tr key={item.id} className="border-b border-slate-100 hover:bg-slate-50">
@@ -664,10 +811,11 @@ export default function App() {
               </div>
             )}
 
+            {/* B. VIEW MODE TAHUNAN */}
             {dashboardMode === 'tahunan' && isManager && (
               <div className="space-y-6">
                 {loadingYearly ? (
-                  <div className="p-12 text-center bg-white rounded-xl border font-semibold text-slate-500">Mengkalkulasi Capaian 12 Bulan...</div>
+                  <div className="p-12 text-center bg-white rounded-xl border font-semibold text-slate-500">Mengkalkulasi Rata-rata Nilai 12 Bulan...</div>
                 ) : (
                   <>
                     {yearlyRecapData.globalBest && currentUser.role === 'Admin' && (
@@ -686,6 +834,7 @@ export default function App() {
                         </div>
                       </div>
                     )}
+
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       {getVisibleAreas().map(area => {
                         const winner = yearlyRecapData.areaBest[area];
@@ -715,7 +864,7 @@ export default function App() {
           </div>
         )}
 
-        {/* --- TAB DATABASE KARYAWAN (ADMIN ONLY) --- */}
+        {/* --- TAB DATABASE KARYAWAN UTAMA (ADMIN ONLY) --- */}
         {activeTab === 'database' && currentUser.role === 'Admin' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 lg:col-span-1 h-fit">
@@ -744,6 +893,7 @@ export default function App() {
                 <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 transition-colors text-white font-bold py-2 rounded shadow">Simpan Karyawan</button>
               </form>
             </div>
+            
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 lg:col-span-2">
               <div className="flex justify-between items-center mb-4 border-b pb-4">
                 <h2 className="text-lg font-bold">Daftar Karyawan Global</h2>
@@ -751,7 +901,7 @@ export default function App() {
               </div>
               <div className="overflow-y-auto max-h-[500px] border rounded shadow-inner">
                 <table className="w-full text-left text-sm border-collapse">
-                  <thead className="bg-slate-100 sticky top-0 z-10"><tr><th className="p-3">Nama</th><th className="p-3 text-center">Smelter</th><th className="p-3 text-center">Role</th><th className="p-3 text-center">Kredensial Login</th><th className="p-3 text-center">Aksi</th></tr></thead>
+                  <thead className="bg-slate-100 sticky top-0 z-10"><tr className="shadow-sm"><th className="p-3">Nama</th><th className="p-3 text-center">Smelter</th><th className="p-3 text-center">Role</th><th className="p-3 text-center">Kredensial Login</th><th className="p-3 text-center">Aksi</th></tr></thead>
                   <tbody>
                     {searchResult.length === 0 ? (
                       <tr><td colSpan="5" className="text-center p-10 text-slate-500 border border-dashed bg-slate-50">Karyawan tidak ditemukan.</td></tr>
@@ -774,9 +924,13 @@ export default function App() {
                           ) : (
                             <>
                               <td className="p-3 font-medium text-slate-700">{p.nama}</td>
-                              <td className="p-3 text-center font-bold text-slate-500">{p.area} {isAreaUnknown && <span className="text-red-500 text-xs block mt-1">(Perlu Diupdate)</span>}</td>
+                              <td className="p-3 text-center font-bold text-slate-500">
+                                {p.area} {isAreaUnknown && <span className="text-red-500 text-xs block mt-1">(Perlu Diupdate)</span>}
+                              </td>
                               <td className="p-3 text-center"><span className="px-3 py-1 bg-slate-200 rounded-full text-xs font-bold">{safeRoles.find(r=>r.id===p.role)?.name || p.role}</span></td>
-                              <td className="p-3 text-center text-xs font-mono text-slate-500">ID: <b className="text-slate-700">{p.idKaryawan || '-'}</b> <br/> PW: <span className="text-slate-700">{p.password || '-'}</span></td>
+                              <td className="p-3 text-center text-xs font-mono text-slate-500">
+                                 ID: <b className="text-slate-700">{p.idKaryawan || '-'}</b> <br/> PW: <span className="text-slate-700">{p.password || '-'}</span>
+                              </td>
                               <td className="p-3 text-center space-x-4"><button onClick={() => handleEditClick(p)} className="text-blue-500 hover:text-blue-700"><Edit size={18}/></button><button onClick={() => setDeleteModal({ show: true, id: p.id, nama: p.nama })} className="text-red-500 hover:text-red-700"><Trash2 size={18}/></button></td>
                             </>
                           )}
@@ -790,7 +944,7 @@ export default function App() {
           </div>
         )}
 
-        {/* --- TAB INPUT NILAI (ADMIN ONLY) --- */}
+        {/* --- TAB INPUT NILAI KINERJA (HANYA ADMIN) --- */}
         {activeTab === 'input' && currentUser.role === 'Admin' && (
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -798,9 +952,14 @@ export default function App() {
                   <h2 className="font-bold text-lg mb-4 border-b pb-2">Paste Data Excel Gabungan</h2>
                   <div className="grid grid-cols-2 gap-4 mb-4">
                     <select className="border p-2 w-full rounded focus:ring-emerald-500" value={selectedWeek} onChange={(e) => setSelectedWeek(e.target.value)}>{weeks.map(w => <option key={w.id} value={w.id}>{w.label}</option>)}</select>
-                    <select className="border p-2 w-full rounded focus:ring-emerald-500" value={selectedIndicator} onChange={(e) => setSelectedIndicator(e.target.value)}>{getAllUniqueCategories().map(c => <option key={c.key} value={c.key}>{c.label}</option>)}</select>
+                    <select className="border p-2 w-full rounded focus:ring-emerald-500" value={selectedIndicator} onChange={(e) => setSelectedIndicator(e.target.value)}>
+                      {getAllUniqueCategories().map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
+                    </select>
                   </div>
-                  <textarea className="w-full border p-3 h-48 rounded text-sm font-mono focus:ring-emerald-500" placeholder="Paste data daftar NAMA saja dari Excel..." value={pasteText} onChange={(e) => setPasteText(e.target.value)}></textarea>
+                  <div className="bg-blue-50 border border-blue-200 text-blue-800 rounded p-3 text-xs mb-3">
+                     💡 <b>Auto-Detect Global:</b> Cukup paste barisan <b>NAMA KARYAWAN</b> dari excel tanpa memisahkan SO atau WFSO. Aplikasi otomatis melacak jabatannya dan menghitung akumulasi frekuensinya.
+                  </div>
+                  <textarea className="w-full border p-3 h-48 rounded text-sm font-mono focus:ring-emerald-500" placeholder="Paste daftar NAMA saja dari Excel..." value={pasteText} onChange={(e) => setPasteText(e.target.value)}></textarea>
                   <button onClick={handleProcessPaste} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 mt-4 rounded shadow">Proses & Akumulasikan Data</button>
                 </div>
                 <div>
@@ -808,6 +967,7 @@ export default function App() {
                   {getVisibleAreas().map(area => {
                     const areaPersonnel = getVisiblePersonnel(area);
                     if (areaPersonnel.length === 0) return null;
+
                     return (
                       <div key={area} className="mb-4">
                         <div className="px-3 py-1.5 rounded-t-lg font-bold text-sm bg-slate-200 text-slate-700">{area}</div>
@@ -816,7 +976,12 @@ export default function App() {
                             <tbody>{areaPersonnel.map(p => {
                               const wData = weeklyData[p.id]?.[selectedWeek] || {};
                               return (
-                                <tr key={p.id} className="border-b last:border-b-0 hover:bg-slate-50"><td className="p-2 font-medium">{p.nama}</td>{getActiveCategories(selectedRoleContext).map(c => <td key={c.key} className="p-2 text-center text-slate-600 font-bold">{wData[c.key] !== undefined ? wData[c.key] : 0}</td>)}</tr>
+                                <tr key={p.id} className="border-b last:border-b-0 hover:bg-slate-50">
+                                  <td className="p-2 font-medium">{p.nama}</td>
+                                  {getActiveCategories(selectedRoleContext).map(c => (
+                                    <td key={c.key} className="p-2 text-center text-slate-600 font-bold">{wData[c.key] !== undefined ? wData[c.key] : 0}</td>
+                                  ))}
+                                </tr>
                               )
                             })}</tbody>
                           </table>
@@ -829,13 +994,15 @@ export default function App() {
           </div>
         )}
 
-        {/* --- TAB LAPORAN FINAL --- */}
+        {/* --- TAB REKAP LAPORAN FINAL --- */}
         {activeTab === 'laporan' && (
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
              <div className="mb-6 pb-4 border-b border-slate-200"><h2 className="font-bold text-2xl">Laporan Rekap Keseluruhan KPI</h2></div>
+             
              {getVisibleAreas().map(area => {
                 const areaPersonnel = getVisiblePersonnel(area);
                 if (areaPersonnel.length === 0) return null;
+                
                 return (
                   <div key={area} className="mb-10 overflow-x-auto shadow-sm rounded-lg">
                     <div className="flex justify-between items-center text-white px-4 py-3 rounded-t-lg bg-slate-800">
@@ -855,15 +1022,28 @@ export default function App() {
                           const acc = getAccumulatedData(p.id, p.role);
                           const um = monthlyData[p.id] || { kepatuhan: 75, pelanggaran: 0, keterangan: '' };
                           const calc = calculateScore(acc, um, p.role);
+
                           return (
                             <tr key={p.id} className="border-b border-slate-200 hover:bg-slate-50">
                               <td className="p-3 text-center font-bold text-slate-500 bg-slate-50/50">{p.area}</td><td className="p-3 font-bold text-slate-700">{p.nama}</td>
                               {getActiveCategories(selectedRoleContext).map(c => <td key={c.key} className="p-3 text-center border-l border-slate-200 font-medium">{acc[c.key]||0}</td>)}
-                              <td className="p-2 text-center border-l border-slate-200 bg-emerald-50/30"><select disabled={currentUser.role !== 'Admin'} className="border p-1.5 rounded w-16 focus:ring-emerald-500 text-center bg-white" value={um.kepatuhan || 75} onChange={e=>handleMonthlyInput(p.id, 'kepatuhan', e.target.value)}><option value="25">25</option><option value="50">50</option><option value="75">75</option></select></td>
-                              <td className="p-2 text-center bg-red-50/30 border-l border-slate-200"><input type="number" disabled={currentUser.role !== 'Admin'} className="w-14 border p-1 rounded text-center focus:ring-red-500 bg-white" value={um.pelanggaran || 0} onChange={e=>handleMonthlyInput(p.id, 'pelanggaran', e.target.value)}/></td>
-                              <td className="p-3 text-center border-l border-slate-200 bg-slate-50 font-bold">{calc.sAwal.toFixed(1)}</td><td className="p-3 text-center bg-slate-50 font-bold text-emerald-600">{calc.tPoin}</td><td className="p-3 text-center text-red-600 font-bold bg-red-50/30">{calc.penalti}</td><td className="p-3 text-center font-bold text-lg text-emerald-800 bg-emerald-100/50 border-l border-emerald-200">{calc.sAkhir.toFixed(1)}</td>
+                              
+                              <td className="p-2 text-center border-l border-slate-200 bg-emerald-50/30">
+                                <select disabled={currentUser.role !== 'Admin'} className="border p-1.5 rounded w-16 focus:ring-emerald-500 text-center bg-white" value={um.kepatuhan || 75} onChange={e=>handleMonthlyInput(p.id, 'kepatuhan', e.target.value)}><option value="25">25</option><option value="50">50</option><option value="75">75</option></select>
+                              </td>
+                              <td className="p-2 text-center bg-red-50/30 border-l border-slate-200">
+                                <input type="number" disabled={currentUser.role !== 'Admin'} className="w-14 border p-1 rounded text-center focus:ring-red-500 bg-white" value={um.pelanggaran || 0} onChange={e=>handleMonthlyInput(p.id, 'pelanggaran', e.target.value)}/>
+                              </td>
+                              
+                              <td className="p-3 text-center border-l border-slate-200 bg-slate-50 font-bold">{calc.sAwal.toFixed(1)}</td>
+                              <td className="p-3 text-center bg-slate-50 font-bold text-emerald-600">{calc.tPoin}</td>
+                              <td className="p-3 text-center text-red-600 font-bold bg-red-50/30">{calc.penalti}</td>
+                              <td className="p-3 text-center font-bold text-lg text-emerald-800 bg-emerald-100/50 border-l border-emerald-200">{calc.sAkhir.toFixed(1)}</td>
                               <td className="p-3 text-center border-l border-emerald-200 bg-emerald-50/50"><span className={`px-3 py-1.5 rounded text-white font-black tracking-wider ${calc.grade==='A'?'bg-green-500':calc.grade==='B'?'bg-lime-500':calc.grade==='C'?'bg-yellow-500':'bg-red-500'}`}>{calc.grade}</span></td>
-                              <td className="p-2 bg-emerald-50/30"><input type="text" disabled={currentUser.role !== 'Admin'} className="w-24 border p-1.5 text-xs rounded focus:ring-emerald-500 bg-white" placeholder="Cuti/Ijin" value={um.keterangan || ''} onChange={e=>handleMonthlyInput(p.id, 'keterangan', e.target.value)}/></td>
+                              
+                              <td className="p-2 bg-emerald-50/30">
+                                <input type="text" disabled={currentUser.role !== 'Admin'} className="w-24 border p-1.5 text-xs rounded focus:ring-emerald-500 bg-white" placeholder="Cuti/Ijin" value={um.keterangan || ''} onChange={e=>handleMonthlyInput(p.id, 'keterangan', e.target.value)}/>
+                              </td>
                             </tr>
                           )
                         })}
@@ -875,11 +1055,12 @@ export default function App() {
           </div>
         )}
 
-        {/* --- TAB PENGATURAN (ADMIN ONLY) --- */}
+        {/* --- TAB PENGATURAN (ONLY ADMIN) --- */}
         {activeTab === 'pengaturan' && currentUser.role === 'Admin' && (
           <div className="bg-slate-800 p-6 rounded-xl shadow-lg border border-slate-700 text-slate-200">
             <h2 className="font-bold text-2xl mb-2 text-white flex items-center gap-2"><Settings /> Pengaturan Sistem (Master Data)</h2>
-            <p className="text-sm text-slate-400 mb-8 border-b border-slate-700 pb-4">Perubahan di sini mengubah seluruh struktur tabel, form, dan rumus penilaian secara instan.</p>
+            <p className="text-sm text-slate-400 mb-8 border-b border-slate-700 pb-4">Setiap perubahan di sini akan otomatis mengubah seluruh struktur tabel, form, dan rumus penilaian di aplikasi secara instan.</p>
+            
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               <div className="bg-slate-900 p-5 rounded-lg border border-slate-700 h-fit lg:col-span-1">
                 <h3 className="font-bold text-white mb-4 flex items-center gap-2">Manajemen Smelter / Area</h3>
@@ -889,16 +1070,21 @@ export default function App() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {safeAreas.map(area => (
-                    <div key={area} className="bg-slate-700 px-3 py-1.5 rounded flex items-center gap-2 text-sm font-bold text-emerald-300">{area} <button onClick={() => handleDeleteArea(area)} className="text-red-400 hover:text-red-300"><Trash2 size={14}/></button></div>
+                    <div key={area} className="bg-slate-700 px-3 py-1.5 rounded flex items-center gap-2 text-sm font-bold text-emerald-300">
+                      {area} <button onClick={() => handleDeleteArea(area)} className="text-red-400 hover:text-red-300"><Trash2 size={14}/></button>
+                    </div>
                   ))}
                 </div>
               </div>
+
               <div className="bg-slate-900 p-5 rounded-lg border border-slate-700 lg:col-span-2">
                 <h3 className="font-bold text-white mb-4">Manajemen Indikator & Target Utama</h3>
                 <div className="grid grid-cols-1 gap-6 mb-8">
                   {safeRoles.filter(r => r.id === 'SO' || r.id === 'WFSO').map(r => (
                     <div key={r.id} className="bg-slate-800 p-4 rounded border border-slate-600">
-                      <h4 className="font-bold text-emerald-400 mb-4 border-b border-slate-700 pb-2"><span>Indikator {r.name}</span></h4>
+                      <h4 className="font-bold text-emerald-400 mb-4 border-b border-slate-700 pb-2">
+                        <span>Indikator {r.name}</span>
+                      </h4>
                       <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm mb-4">
                           <thead><tr className="text-slate-400 border-b border-slate-700"><th className="pb-2">Nama Indikator</th><th className="pb-2 text-center">Tipe Aturan</th><th className="pb-2 text-center">Target (Angka)</th><th className="pb-2 text-center">Aksi</th></tr></thead>
@@ -907,9 +1093,13 @@ export default function App() {
                               <tr key={cat.key} className="border-b border-slate-700/50">
                                 <td className="py-2"><input type="text" className="bg-slate-700 border border-slate-600 rounded p-1 w-full text-white text-xs" value={cat.label} onChange={(e) => handleUpdateCategory(r.id, index, 'label', e.target.value)} /></td>
                                 <td className="py-2 px-2 text-center">
-                                  <select className="bg-slate-700 border border-slate-600 rounded p-1 text-white text-xs" value={cat.isTargeted} onChange={(e) => handleUpdateCategory(r.id, index, 'isTargeted', e.target.value === 'true')}><option value="true">Target Utama</option><option value="false">Extra Poin</option></select>
+                                  <select className="bg-slate-700 border border-slate-600 rounded p-1 text-white text-xs" value={cat.isTargeted} onChange={(e) => handleUpdateCategory(r.id, index, 'isTargeted', e.target.value === 'true')}>
+                                    <option value="true">Target Utama</option><option value="false">Extra Poin</option>
+                                  </select>
                                 </td>
-                                <td className="py-2 px-2 text-center"><input type="number" disabled={!cat.isTargeted} className={`w-16 bg-slate-700 border border-slate-600 rounded p-1 text-center text-xs font-bold text-white ${!cat.isTargeted && 'opacity-50'}`} value={cat.target} onChange={(e) => handleUpdateCategory(r.id, index, 'target', e.target.value)} /></td>
+                                <td className="py-2 px-2 text-center">
+                                  <input type="number" disabled={!cat.isTargeted} className={`w-16 bg-slate-700 border border-slate-600 rounded p-1 text-center text-xs font-bold text-white ${!cat.isTargeted && 'opacity-50'}`} value={cat.target} onChange={(e) => handleUpdateCategory(r.id, index, 'target', e.target.value)} />
+                                </td>
                                 <td className="py-2 text-center"><button onClick={() => handleDeleteCategory(r.id, index)} className="text-red-400 hover:text-red-300 p-1"><Trash2 size={16}/></button></td>
                               </tr>
                             ))}
@@ -919,14 +1109,21 @@ export default function App() {
                     </div>
                   ))}
                 </div>
+
                 <div className="bg-slate-800 p-4 rounded border border-emerald-700/50 shadow-inner">
                   <h4 className="font-bold text-white mb-3 text-sm flex items-center gap-2"><Plus size={16} className="text-emerald-400"/> Tambah Indikator Lapangan Baru</h4>
                   <div className="flex flex-wrap gap-3 items-end">
                     <div className="flex-1 min-w-[150px]"><label className="block text-xs text-slate-400 mb-1">Pilih Jabatan</label>
-                      <select className="w-full bg-slate-700 border border-slate-600 rounded p-2 text-white text-sm" value={newCatRole} onChange={e=>setNewCatRole(e.target.value)}>{safeRoles.filter(r => r.id === 'SO' || r.id === 'WFSO').map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select>
+                      <select className="w-full bg-slate-700 border border-slate-600 rounded p-2 text-white text-sm" value={newCatRole} onChange={e=>setNewCatRole(e.target.value)}>
+                        {safeRoles.filter(r => r.id === 'SO' || r.id === 'WFSO').map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                      </select>
                     </div>
                     <div className="flex-1 min-w-[150px]"><label className="block text-xs text-slate-400 mb-1">Nama Indikator</label><input type="text" placeholder="Misal: Patroli" className="w-full bg-slate-700 border border-slate-600 rounded p-2 text-white text-sm" value={newCatLabel} onChange={e=>setNewCatLabel(e.target.value)} /></div>
-                    <div className="w-32"><label className="block text-xs text-slate-400 mb-1">Tipe</label><select className="w-full bg-slate-700 border border-slate-600 rounded p-2 text-white text-sm" value={newCatType} onChange={e=>setNewCatType(e.target.value)}><option value="target">Target Utama</option><option value="extra">Extra Poin</option></select></div>
+                    <div className="w-32"><label className="block text-xs text-slate-400 mb-1">Tipe</label>
+                      <select className="w-full bg-slate-700 border border-slate-600 rounded p-2 text-white text-sm" value={newCatType} onChange={e=>setNewCatType(e.target.value)}>
+                        <option value="target">Target Utama</option><option value="extra">Extra Poin</option>
+                      </select>
+                    </div>
                     {newCatType === 'target' && (
                       <div className="w-24"><label className="block text-xs text-slate-400 mb-1">Target</label><input type="number" className="w-full bg-slate-700 border border-slate-600 rounded p-2 text-white text-sm font-bold" value={newCatTarget} onChange={e=>setNewCatTarget(e.target.value)} /></div>
                     )}
@@ -943,12 +1140,21 @@ export default function App() {
       {pasteErrors.length > 0 && (
         <div className="fixed inset-0 bg-slate-900/75 flex items-center justify-center z-[110] p-4 transition-opacity">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
-            <div className="flex items-center gap-3 mb-4 text-red-600 border-b pb-2"><AlertTriangle size={28} /><h3 className="text-lg font-bold">Nama Tidak Terdaftar!</h3></div>
-            <p className="text-sm text-slate-600 mb-4 font-sans">Beberapa nama dari excel di bawah ini <b>gagal diinput</b> karena tidak ditemukan atau salah ketik (*typo*). Pastikan ejaan nama sama persis dengan menu Karyawan:</p>
-            <div className="bg-slate-100 p-3 rounded border border-slate-200 max-h-48 overflow-y-auto mb-6">
-              <ul className="list-disc pl-5 text-xs text-slate-700 font-mono space-y-1">{pasteErrors.map((name, i) => <li key={i} className="capitalize">{name}</li>)}</ul>
+            <div className="flex items-center gap-3 mb-4 text-red-600 border-b pb-2">
+              <AlertTriangle size={28} />
+              <h3 className="text-lg font-bold">Nama Tidak Terdaftar!</h3>
             </div>
-            <button onClick={() => setPasteErrors([])} className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 rounded-lg shadow text-sm transition-colors">Tutup & Evaluasi Nama</button>
+            <p className="text-sm text-slate-600 mb-4 font-sans">
+              Beberapa nama dari excel di bawah ini <b>gagal diinput</b> karena tidak ditemukan atau salah ketik (*typo*). Pastikan ejaan nama sama persis dengan menu Karyawan:
+            </p>
+            <div className="bg-slate-100 p-3 rounded border border-slate-200 max-h-48 overflow-y-auto mb-6">
+              <ul className="list-disc pl-5 text-xs text-slate-700 font-mono space-y-1">
+                {pasteErrors.map((name, i) => <li key={i} className="capitalize">{name}</li>)}
+              </ul>
+            </div>
+            <button onClick={() => setPasteErrors([])} className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 rounded-lg shadow text-sm transition-colors">
+              Tutup & Evaluasi Nama
+            </button>
           </div>
         </div>
       )}
@@ -960,7 +1166,7 @@ export default function App() {
             <div className="flex flex-col items-center text-center">
               <div className="bg-red-100 p-3 rounded-full mb-4"><AlertTriangle size={32} className="text-red-600" /></div>
               <h3 className="text-xl font-bold text-slate-800 mb-2">Hapus Karyawan?</h3>
-              <p className="text-slate-600 mb-6 text-sm">Apakah Anda yakin ingin menghapus <b>{deleteModal.nama}</b>?</p>
+              <p className="text-slate-600 mb-6 text-sm">Apakah Anda yakin ingin menghapus <b>{deleteModal.nama}</b>? Data penilaian yang tersimpan pada bulan-bulan sebelumnya tidak akan hilang, namun profil karyawan ini akan dinonaktifkan dari daftar global.</p>
               <div className="flex gap-3 w-full">
                 <button onClick={() => setDeleteModal({ show: false, id: null, nama: '' })} className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 transition-colors font-bold rounded-lg text-slate-700 text-sm">Batal</button>
                 <button onClick={confirmDelete} className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 transition-colors text-white font-bold rounded-lg text-sm shadow-md">Ya, Hapus</button>
