@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Database, ClipboardPaste, CheckCircle, Table, Trash2, Edit, AlertTriangle, 
   Download, Search, LayoutDashboard, Calendar, TrendingDown, Settings, 
-  Plus, XCircle, Award, Medal, UserCheck, Lock, User, LogOut, Smartphone, Shield, Clock
+  Plus, XCircle, Award, Medal, UserCheck, Lock, User, LogOut, Smartphone, Shield
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
@@ -172,12 +172,8 @@ export default function App() {
       
       const timestampString = `${day} ${month} ${year} - Pukul ${hours}:${minutes} WITA`;
       
-      // Update state lokal secara instan agar langsung berubah di layar
       setMasterData(prev => ({ ...prev, lastDataUpdate: timestampString }));
-      
-      // Simpan ke database Firebase
       await setDoc(doc(db, 'artifacts', getAppId(), 'settings', 'master'), { lastDataUpdate: timestampString }, { merge: true });
-      
       showToast("Waktu sinkronisasi berhasil diperbarui!");
     } catch (error) {
       console.error("Gagal update timestamp:", error);
@@ -588,7 +584,7 @@ export default function App() {
 
 
   // =====================================================
-  // RENDER PRAMUAT & JENDELA LOGIN & MODAL GLOBAL
+  // RENDER PRAMUAT & JENDELA LOGIN & MODAL GLOBAL (ALL STATES)
   // =====================================================
   if (!isDbReady || isCheckingSession) {
     return (
@@ -635,8 +631,8 @@ export default function App() {
             <div className="bg-emerald-500/10 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-3 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.2)]">
               <CheckCircle size={36} className="text-emerald-500" />
             </div>
-            <h2 className="text-xl font-black text-white tracking-tighter uppercase">KPI HSE Portal</h2>
-            <p className="text-slate-500 text-xs mt-1">Sistem Evaluasi BUFN 2</p>
+            <h2 className="text-xl font-black text-white tracking-tighter uppercase">Portal KPI HSE BUFN2</h2>
+            <p className="text-slate-500 text-xs mt-1">Sistem Evaluasi Mandiri</p>
           </div>
           
           <form onSubmit={handleLoginSubmit} className="space-y-4">
@@ -644,22 +640,42 @@ export default function App() {
               <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-wider">ID Karyawan</label>
               <div className="relative mt-1">
                 <User size={18} className="absolute left-4 top-3.5 text-slate-500" />
-                <input type="text" placeholder="Contoh: SO-001" className="w-full bg-slate-800 border border-slate-700 p-3 pl-11 rounded-2xl text-white outline-none focus:border-emerald-500 transition-all font-mono text-sm shadow-inner"
-                  value={loginForm.idKaryawan} onChange={e => setLoginForm({...loginForm, idKaryawan: e.target.value})} onFocus={scrollToView} />
+                <input 
+                  type="text" 
+                  placeholder="Contoh: 822" 
+                  className="w-full bg-slate-800 border border-slate-700 p-3 pl-11 rounded-2xl text-white outline-none focus:border-emerald-500 transition-all font-mono text-sm shadow-inner"
+                  value={loginForm.idKaryawan} 
+                  onChange={e => setLoginForm({...loginForm, idKaryawan: e.target.value})}
+                  onFocus={scrollToView} 
+                />
               </div>
             </div>
             <div>
               <label className="text-[10px] font-black text-slate-400 uppercase ml-1 tracking-wider">Password</label>
               <div className="relative mt-1">
                 <Lock size={18} className="absolute left-4 top-3.5 text-slate-500" />
-                <input type="password" placeholder="••••••••" className="w-full bg-slate-800 border border-slate-700 p-3 pl-11 rounded-2xl text-white outline-none focus:border-emerald-500 transition-all text-sm shadow-inner"
-                  value={loginForm.password} onChange={e => setLoginForm({...loginForm, password: e.target.value})} onFocus={scrollToView} />
+                <input 
+                  type="password" 
+                  placeholder="••••••••" 
+                  className="w-full bg-slate-800 border border-slate-700 p-3 pl-11 rounded-2xl text-white outline-none focus:border-emerald-500 transition-all text-sm shadow-inner"
+                  value={loginForm.password} 
+                  onChange={e => setLoginForm({...loginForm, password: e.target.value})}
+                  onFocus={scrollToView} 
+                />
               </div>
             </div>
 
             <div className="flex items-center gap-2 pt-1 pb-1 ml-1">
-              <input type="checkbox" id="rememberMe" className="w-4 h-4 rounded border-slate-600 bg-slate-800 accent-emerald-500 cursor-pointer shrink-0" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} />
-              <label htmlFor="rememberMe" className="text-[11px] font-semibold text-slate-400 select-none cursor-pointer">Biarkan saya tetap masuk</label>
+              <input 
+                type="checkbox" 
+                id="rememberMe" 
+                className="w-4 h-4 rounded border-slate-600 bg-slate-800 accent-emerald-500 cursor-pointer shrink-0"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+              />
+              <label htmlFor="rememberMe" className="text-[11px] font-semibold text-slate-400 select-none cursor-pointer">
+                Biarkan saya tetap masuk
+              </label>
             </div>
 
             <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-3.5 rounded-2xl shadow-xl shadow-emerald-900/40 transition-all transform active:scale-[0.98] tracking-widest text-sm mt-2">
@@ -767,7 +783,6 @@ export default function App() {
                   Last Update : {masterData.lastDataUpdate || 'Belum ada data'}
                 </p>
               </div>
-              {/* Tombol Force Update Khusus Admin */}
               {currentUser.role === 'Admin' && (
                 <button onClick={updateLastModified} className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] md:text-xs font-bold px-3 py-2 rounded-xl shadow-sm transition-all active:scale-95 whitespace-nowrap border border-emerald-700">
                   Update Waktu
