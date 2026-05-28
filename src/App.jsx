@@ -88,7 +88,6 @@ export default function App() {
   // =====================================================
   const [currentUser, setCurrentUser] = useState(null); 
   const [loginForm, setLoginForm] = useState({ idKaryawan: '', password: '' });
-  const [rememberMe, setRememberMe] = useState(false); 
   const [isCheckingSession, setIsCheckingSession] = useState(true); 
   
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -160,7 +159,7 @@ export default function App() {
   ];
 
   // =====================================================
-  // HELPER: PENCATAT WAKTU SINKRONISASI (TIMESTAMP)
+  // PENCATAT WAKTU (TIMESTAMP) - FITUR BARU
   // =====================================================
   const updateLastModified = async () => {
     try {
@@ -170,48 +169,73 @@ export default function App() {
       
       setMasterData(prev => ({ ...prev, lastDataUpdate: timestampString }));
       await setDoc(doc(db, 'artifacts', getAppId(), 'settings', 'master'), { lastDataUpdate: timestampString }, { merge: true });
-      showToast("Waktu sinkronisasi diperbarui!");
-    } catch (error) { console.error("Gagal update timestamp:", error); }
+    } catch (error) {
+      console.error("Gagal update timestamp:", error);
+    }
   };
 
   // =====================================================
-  // INTERSEPTOR NAVIGATION BACK BUTTON HP
+  // SISTEM JEBAKAN TOMBOL KEMBALI HP
   // =====================================================
   useEffect(() => {
     window.history.pushState({ trap: true }, '');
-    const handlePopState = (e) => { e.preventDefault(); setShowExitModal(true); };
+    const handlePopState = (e) => {
+      e.preventDefault();
+      setShowExitModal(true); 
+    };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  const cancelExitApp = () => { setShowExitModal(false); window.history.pushState({ trap: true }, ''); };
-  const confirmExitApp = () => { setShowExitModal(false); window.close(); setTimeout(() => { window.history.back(); }, 100); };
+  const cancelExitApp = () => {
+    setShowExitModal(false);
+    window.history.pushState({ trap: true }, '');
+  };
+
+  const confirmExitApp = () => {
+    setShowExitModal(false);
+    window.close();
+    setTimeout(() => { window.history.back(); }, 100);
+  };
 
   // =====================================================
-  // POPUP MANIFEST PWA PROMPT
+  // POPUP MANIFEST PWA
   // =====================================================
   useEffect(() => {
     const handleInstallPrompt = (e) => {
-      e.preventDefault(); setDeferredPrompt(e); setShowInstallPopup(true); 
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setShowInstallPopup(true); 
     };
     window.addEventListener('beforeinstallprompt', handleInstallPrompt);
+    
     const hasSeenPopup = localStorage.getItem('bufn2_install_prompt');
-    if (!hasSeenPopup) setTimeout(() => setShowInstallPopup(true), 3000);
+    if (!hasSeenPopup) {
+      setTimeout(() => setShowInstallPopup(true), 3000);
+    }
     return () => window.removeEventListener('beforeinstallprompt', handleInstallPrompt);
   }, []);
 
   const triggerNativeInstall = async () => {
-    if (!deferredPrompt) return showToast("Gunakan browser Chrome/Safari, lalu pilih 'Tambahkan ke Layar Utama'", "error");
+    if (!deferredPrompt) {
+      showToast("Gunakan browser Chrome/Safari, lalu pilih 'Tambahkan ke Layar Utama'", "error");
+      return;
+    }
     deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') { showToast("Aplikasi berhasil diinstal ke HP Anda!"); localStorage.setItem('bufn2_install_prompt', 'done'); }
-    setDeferredPrompt(null); setShowInstallPopup(false);
+    if (outcome === 'accepted') {
+      showToast("Aplikasi berhasil diinstal ke HP Anda!");
+      localStorage.setItem('bufn2_install_prompt', 'done');
+    }
+    setDeferredPrompt(null);
+    setShowInstallPopup(false);
   };
 
   // =====================================================
-  // RESTORE LOGIN SESSION INSTAN (ANTI-REFRESH) & FIRESTORE
+  // AUTO LOGIN & INISIALISASI FIREBASE - FITUR BARU
   // =====================================================
   useEffect(() => {
+    // Mengecek localStorage secara otomatis saat pertama kali dibuka
     const savedUser = localStorage.getItem('bufn2_user_session');
     if (savedUser) {
       try { setCurrentUser(JSON.parse(savedUser)); } 
@@ -220,7 +244,9 @@ export default function App() {
     setIsCheckingSession(false);
 
     const unsubAuth = onAuthStateChanged(auth, async (userObj) => {
-      if (!userObj) try { await signInAnonymously(auth); } catch (e) { console.error(e); }
+      if (!userObj) {
+        try { await signInAnonymously(auth); } catch (e) { console.error(e); }
+      }
     });
 
     const appId = getAppId();
@@ -270,18 +296,19 @@ export default function App() {
     return () => { unsubW(); unsubM(); };
   }, [selectedPeriod]);
 
-  // PROTEKSI FILTER ROLE MANAGER
   const isManager = Boolean(currentUser && ['Admin', 'Foreman', 'WFSO'].includes(currentUser?.role));
   useEffect(() => {
     if (currentUser && !isManager) setSelectedRoleContext(currentUser?.role || 'SO');
   }, [currentUser, isManager]);
 
   useEffect(() => {
-    if (activeTab === 'dashboard' && dashboardMode === 'tahunan' && Array.isArray(personnel) && personnel.length > 0) calculateYearlyBest();
+    if (activeTab === 'dashboard' && dashboardMode === 'tahunan' && Array.isArray(personnel) && personnel.length > 0) {
+      calculateYearlyBest();
+    }
   }, [activeTab, dashboardMode, selectedPeriod, personnel, selectedRoleContext]);
 
   // =====================================================
-  // LOGIN SUBMIT (KEBAL TYPO SPASI & HURUF BESAR)
+  // LOGIN SUBMIT EXECUTOR (OTOMATIS TERSIMPAN)
   // =====================================================
   const handleLoginSubmit = (e) => {
     e.preventDefault();
@@ -318,7 +345,6 @@ export default function App() {
   const handleLogout = () => {
     setCurrentUser(null);
     setLoginForm({ idKaryawan: '', password: '' });
-    setRememberMe(false);
     localStorage.removeItem('bufn2_user_session'); 
     showToast("Berhasil keluar.");
   };
@@ -327,22 +353,28 @@ export default function App() {
   const scrollToView = (e) => { setTimeout(() => { e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 300); };
 
   // =====================================================
-  // OPERASIONAL CORE SYSTEM
+  // CRUD OPERASIONAL DATA (DITAMBAH TIMESTAMP)
   // =====================================================
   const saveMasterData = async (newData) => {
     try { 
       await setDoc(doc(db, 'artifacts', getAppId(), 'settings', 'master'), newData); 
-      await updateLastModified(); showToast("Master data disimpan!"); 
+      await updateLastModified(); 
+      showToast("Master data disimpan!"); 
     } catch (error) { showToast("Gagal: " + error.message, "error"); }
   };
+
   const handleAddArea = () => {
-    if(!newArea.trim()) return; const formattedArea = String(newArea).trim().replace(/\b\w/g, l => l.toUpperCase());
+    if(!newArea.trim()) return; 
+    const formattedArea = String(newArea).trim().replace(/\b\w/g, l => l.toUpperCase());
     if(safeAreas.includes(formattedArea)) return showToast("Smelter sudah terdaftar!", "error");
-    saveMasterData({ ...masterData, areas: [...safeAreas, formattedArea] }); setNewArea('');
+    saveMasterData({ ...masterData, areas: [...safeAreas, formattedArea] }); 
+    setNewArea('');
   };
+
   const handleDeleteArea = (areaTarget) => {
     if(confirm(`Hapus ${areaTarget}?`)) { saveMasterData({ ...masterData, areas: safeAreas.filter(a => a !== areaTarget) }); }
   };
+
   const handleUpdateCategory = (roleId, catIndex, field, value) => {
     const updatedCategories = { ...masterData.categories };
     if (field === 'target') updatedCategories[roleId][catIndex].target = Number(value) || 0;
@@ -350,16 +382,21 @@ export default function App() {
     if (field === 'isTargeted') { updatedCategories[roleId][catIndex].isTargeted = Boolean(value); if (!value) updatedCategories[roleId][catIndex].target = 0; }
     saveMasterData({ ...masterData, categories: updatedCategories });
   };
+
   const handleDeleteCategory = (roleId, catIndex) => {
     const updatedCategories = { ...masterData.categories };
-    updatedCategories[roleId].splice(catIndex, 1); saveMasterData({ ...masterData, categories: updatedCategories });
+    updatedCategories[roleId].splice(catIndex, 1); 
+    saveMasterData({ ...masterData, categories: updatedCategories });
   };
+
   const handleAddCategory = () => {
     if (!newCatLabel.trim()) return showToast("Nama kriteria wajib diisi!", "error");
     const updatedCategories = { ...masterData.categories }; const newKey = 'cat_' + Date.now();
     if (!Array.isArray(updatedCategories[newCatRole])) updatedCategories[newCatRole] = [];
     updatedCategories[newCatRole].push({ key: newKey, label: String(newCatLabel), target: newCatType === 'target' ? Number(newCatTarget) : 0, isTargeted: newCatType === 'target' });
-    saveMasterData({ ...masterData, categories: updatedCategories }); setNewCatLabel(''); setNewCatTarget(0);
+    saveMasterData({ ...masterData, categories: updatedCategories }); 
+    setNewCatLabel(''); 
+    setNewCatTarget(0);
   };
 
   const handleAddPersonnel = async (e) => {
@@ -372,28 +409,46 @@ export default function App() {
       showToast("Karyawan baru terdaftar!");
     } catch (error) { showToast("Gagal: " + error.message, "error"); }
   };
-  const handleEditClick = (emp) => { setEditingId(emp?.id); setEditFormData({ nama: emp?.nama || '', area: emp?.area || '', role: emp?.role || '' }); };
+
+  const handleEditClick = (emp) => { 
+    setEditingId(emp?.id); 
+    setEditFormData({ nama: emp?.nama || '', area: emp?.area || '', role: emp?.role || '' }); 
+  };
+
   const handleSaveEdit = async () => {
     if (!editFormData.nama.trim()) return;
     try { 
       await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', editingId), { nama: String(editFormData.nama), area: String(editFormData.area), role: String(editFormData.role) }, { merge: true }); 
-      await updateLastModified(); setEditingId(null); showToast("Profil diubah!"); 
+      await updateLastModified(); 
+      setEditingId(null); 
+      showToast("Profil diubah!"); 
     } catch (error) { showToast("Gagal: " + error.message, "error"); }
   };
+
   const confirmDelete = async () => {
     try { 
       await deleteDoc(doc(db, 'artifacts', getAppId(), 'personnel', deleteModal.id)); 
-      await updateLastModified(); setDeleteModal({ show: false, id: null, nama: '' }); showToast("Data dihapus!"); 
+      await updateLastModified(); 
+      setDeleteModal({ show: false, id: null, nama: '' }); 
+      showToast("Data dihapus!"); 
     } catch (error) { showToast("Gagal: " + error.message, "error"); }
   };
-  const handleEditCredClick = (emp) => { setEditingCredId(emp?.id); setCredFormData({ idKaryawan: emp?.idKaryawan || '', password: emp?.password || '' }); };
+
+  const handleEditCredClick = (emp) => { 
+    setEditingCredId(emp?.id); 
+    setCredFormData({ idKaryawan: emp?.idKaryawan || '', password: emp?.password || '' }); 
+  };
+
   const handleSaveCred = async () => {
-    try { await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', editingCredId), { idKaryawan: String(credFormData.idKaryawan), password: String(credFormData.password) }, { merge: true }); setEditingCredId(null); showToast("Akses Login diperbarui!"); } 
-    catch (error) { showToast("Gagal: " + error.message, "error"); }
+    try { 
+      await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', editingCredId), { idKaryawan: String(credFormData.idKaryawan), password: String(credFormData.password) }, { merge: true }); 
+      setEditingCredId(null); 
+      showToast("Akses Login diperbarui!"); 
+    } catch (error) { showToast("Gagal: " + error.message, "error"); }
   };
   
   // =====================================================
-  // DATA PASTE EXCEL & LOGIKA MATEMATIKA (100% ANTI BLANK)
+  // DATA PASTE EXCEL & LOGIKA MATEMATIKA (DITAMBAH TIMESTAMP)
   // =====================================================
   const handleProcessPaste = async () => {
     if (!pasteText.trim()) return showToast('Teks paste kosong!', 'error');
@@ -406,20 +461,29 @@ export default function App() {
     Object.keys(counts).forEach(namaKey => {
       const emp = personnel.find(p => String(p?.nama || '').toLowerCase() === namaKey);
       if (emp && emp.id) {
-        if (!updates[emp.id]) updates[emp.id] = {}; if (!updates[emp.id][selectedWeek]) updates[emp.id][selectedWeek] = {};
+        if (!updates[emp.id]) updates[emp.id] = {}; 
+        if (!updates[emp.id][selectedWeek]) updates[emp.id][selectedWeek] = {};
         const oldVal = weeklyData[emp.id]?.[selectedWeek]?.[selectedIndicator] || 0;
-        updates[emp.id][selectedWeek][selectedIndicator] = oldVal + counts[namaKey]; matchedCount++;
+        updates[emp.id][selectedWeek][selectedIndicator] = oldVal + counts[namaKey]; 
+        matchedCount++;
       } else { notFoundNames.push(namaKey); }
     });
     try {
-      for (const empId of Object.keys(updates)) { await setDoc(doc(db, 'artifacts', getAppId(), `weekly_${selectedPeriod}`, empId), updates[empId], { merge: true }); }
-      await updateLastModified(); setPasteText(''); showToast(`Berhasil merekap ${lineTotal} data!`);
+      for (const empId of Object.keys(updates)) { 
+        await setDoc(doc(db, 'artifacts', getAppId(), `weekly_${selectedPeriod}`, empId), updates[empId], { merge: true }); 
+      }
+      await updateLastModified(); 
+      setPasteText(''); 
+      showToast(`Berhasil merekap ${lineTotal} data!`);
       if(notFoundNames.length > 0) setPasteErrors(Array.from(new Set(notFoundNames)));
     } catch (error) { showToast("Gagal: " + error.message, "error"); }
   };
 
   const handleMonthlyInput = async (empId, field, value) => {
-    try { await setDoc(doc(db, 'artifacts', getAppId(), `monthly_${selectedPeriod}`, empId), { [field]: value }, { merge: true }); await updateLastModified(); } catch (error) { console.error(error); }
+    try { 
+      await setDoc(doc(db, 'artifacts', getAppId(), `monthly_${selectedPeriod}`, empId), { [field]: value }, { merge: true }); 
+      await updateLastModified(); 
+    } catch (error) { console.error(error); }
   };
 
   const getAccumulatedData = (empId, role) => {
@@ -643,7 +707,7 @@ export default function App() {
   }
 
   // =====================================================
-  // RENDER DASHBOARD CORE SYSTEM (AUTHENTICATED)
+  // RENDER DASHBOARD CORE SYSTEM
   // =====================================================
   return (
     <div className="min-h-[100dvh] bg-slate-50 text-slate-800 font-sans pb-12 relative overflow-hidden">
@@ -718,7 +782,7 @@ export default function App() {
           <div className="mb-4 bg-white p-4 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center gap-3 border border-slate-200">
             <span className="font-bold text-slate-700 text-sm">Tampilkan Data Untuk:</span>
             <div className="flex gap-2 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden">
-              {safeRoles.filter(r => r?.id === 'SO' || r?.id === 'WFSO').map(r => (
+              {(safeRoles || []).filter(r => r?.id === 'SO' || r?.id === 'WFSO').map(r => (
                 <button key={r?.id || Math.random()} onClick={() => setSelectedRoleContext(r?.id)} className={`px-4 py-1.5 rounded-lg font-bold transition-all whitespace-nowrap text-sm ${selectedRoleContext === r?.id ? 'bg-emerald-100 text-emerald-800 shadow-sm border border-emerald-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{r?.name || 'Unknown'}</button>
               ))}
             </div>
@@ -738,11 +802,6 @@ export default function App() {
                   Last Update : {masterData?.lastDataUpdate || 'Belum ada data'}
                 </p>
               </div>
-              {currentUser?.role === 'Admin' && (
-                <button onClick={updateLastModified} className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] md:text-xs font-bold px-3 py-2 rounded-xl shadow-sm transition-all active:scale-95 whitespace-nowrap border border-emerald-700">
-                  Update Waktu
-                </button>
-              )}
             </div>
 
             {isManager && (
@@ -806,7 +865,7 @@ export default function App() {
                           <div>
                             <span className="bg-amber-900/60 text-white text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest border border-amber-800/30">Karyawan Terbaik Global</span>
                             <h3 className="text-2xl font-black mt-3 tracking-wide shadow-sm">{yearlyRecapData?.globalBest?.nama || 'Unknown'}</h3>
-                            <p className="text-amber-100 text-xs mt-1.5 font-medium">Penempatan: <b>{yearlyRecapData?.globalBest?.area || 'Unknown'}</b> | Jabatan: <b>{safeRoles.find(r=>r.id===selectedRoleContext)?.name || 'Unknown'}</b></p>
+                            <p className="text-amber-100 text-xs mt-1.5 font-medium">Penempatan: <b>{yearlyRecapData?.globalBest?.area || 'Unknown'}</b> | Jabatan: <b>{safeRoles.find(r=>r?.id===selectedRoleContext)?.name || 'Unknown'}</b></p>
                           </div>
                         </div>
                         <div className="bg-white/10 px-6 py-4 rounded-2xl border border-white/20 text-center shadow-inner w-full md:w-auto relative z-10 backdrop-blur-sm">
@@ -851,8 +910,8 @@ export default function App() {
                   <form onSubmit={handleAddPersonnel} className="space-y-4">
                     <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Nama Lengkap</label><input type="text" required className="w-full border border-slate-300 p-3 rounded-xl focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-sm shadow-sm" value={newEmp.nama} onChange={e => setNewEmp({...newEmp, nama: e.target.value})} /></div>
                     <div className="grid grid-cols-2 gap-3">
-                      <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Smelter</label><select className="w-full border border-slate-300 p-3 rounded-xl focus:ring-emerald-500 text-sm bg-white shadow-sm outline-none" value={newEmp.area} onChange={e => setNewEmp({...newEmp, area: e.target.value})}>{safeAreas.map(a => <option key={a || Math.random()} value={a}>{a}</option>)}</select></div>
-                      <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Jabatan</label><select className="w-full border border-slate-300 p-3 rounded-xl focus:ring-emerald-500 text-sm bg-white shadow-sm outline-none" value={newEmp.role} onChange={e => setNewEmp({...newEmp, role: e.target.value})}>{safeRoles.map(r => <option key={r?.id || Math.random()} value={r?.id}>{r?.name}</option>)}</select></div>
+                      <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Smelter</label><select className="w-full border border-slate-300 p-3 rounded-xl focus:ring-emerald-500 text-sm bg-white shadow-sm outline-none" value={newEmp.area} onChange={e => setNewEmp({...newEmp, area: e.target.value})}>{(safeAreas || []).map(a => <option key={a || Math.random()} value={a}>{a}</option>)}</select></div>
+                      <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Jabatan</label><select className="w-full border border-slate-300 p-3 rounded-xl focus:ring-emerald-500 text-sm bg-white shadow-sm outline-none" value={newEmp.role} onChange={e => setNewEmp({...newEmp, role: e.target.value})}>{(safeRoles || []).map(r => <option key={r?.id || Math.random()} value={r?.id}>{r?.name}</option>)}</select></div>
                     </div>
                     <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 transition-colors text-white font-black py-3.5 rounded-xl shadow-lg shadow-emerald-900/20 text-sm mt-4 tracking-wide">SIMPAN DATA</button>
                   </form>
@@ -867,7 +926,7 @@ export default function App() {
                     <table className="w-full text-left text-sm whitespace-nowrap">
                       <thead className="bg-slate-100 text-slate-600 sticky top-0 z-10"><tr><th className="p-4 font-bold">Nama Lengkap</th><th className="p-4 text-center font-bold">Smelter</th><th className="p-4 text-center font-bold">Jabatan Aktif</th><th className="p-4 text-center font-bold">Aksi</th></tr></thead>
                       <tbody>
-                        {searchResult.length === 0 ? (
+                        {(searchResult || []).length === 0 ? (
                           <tr><td colSpan="4" className="text-center p-10 text-slate-500 border-dashed bg-slate-50 font-medium">Karyawan tidak ditemukan.</td></tr>
                         ) : (
                           searchResult.map(p => {
@@ -877,8 +936,8 @@ export default function App() {
                               {editingId === p?.id ? (
                                 <>
                                   <td className="p-2"><input type="text" className="border border-slate-300 p-2 w-full text-sm rounded-lg focus:ring-emerald-500 outline-none" value={editFormData.nama} onChange={(e) => setEditFormData({...editFormData, nama: e.target.value})} /></td>
-                                  <td className="p-2 text-center"><select className="border border-slate-300 p-2 text-sm rounded-lg focus:ring-emerald-500 bg-white outline-none" value={editFormData.area} onChange={(e) => setEditFormData({...editFormData, area: e.target.value})}>{safeAreas.map(a => <option key={a || Math.random()} value={a}>{a}</option>)}</select></td>
-                                  <td className="p-2 text-center"><select className="border border-slate-300 p-2 text-sm rounded-lg focus:ring-emerald-500 bg-white outline-none" value={editFormData.role} onChange={(e) => setEditFormData({...editFormData, role: e.target.value})}>{safeRoles.map(r => <option key={r?.id || Math.random()} value={r?.id}>{r?.name}</option>)}</select></td>
+                                  <td className="p-2 text-center"><select className="border border-slate-300 p-2 text-sm rounded-lg focus:ring-emerald-500 bg-white outline-none" value={editFormData.area} onChange={(e) => setEditFormData({...editFormData, area: e.target.value})}>{(safeAreas || []).map(a => <option key={a || Math.random()} value={a}>{a}</option>)}</select></td>
+                                  <td className="p-2 text-center"><select className="border border-slate-300 p-2 text-sm rounded-lg focus:ring-emerald-500 bg-white outline-none" value={editFormData.role} onChange={(e) => setEditFormData({...editFormData, role: e.target.value})}>{(safeRoles || []).map(r => <option key={r?.id || Math.random()} value={r?.id}>{r?.name}</option>)}</select></td>
                                   <td className="p-2 text-center space-x-2"><button onClick={handleSaveEdit} className="text-white bg-emerald-600 px-4 py-2 rounded-lg font-bold text-xs shadow-md">Simpan</button><button onClick={() => setEditingId(null)} className="bg-slate-200 px-4 py-2 rounded-lg font-bold text-xs text-slate-700">Batal</button></td>
                                 </>
                               ) : (
@@ -955,7 +1014,6 @@ export default function App() {
                  <div className="mb-6 pb-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
                    <h2 className="font-black text-xl md:text-2xl text-slate-800">Laporan Akhir Kinerja (KPI)</h2>
                    
-                   {/* INDIKATOR STATUS DATA */}
                    <div className="bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 flex items-center gap-2 w-fit">
                      <span className="relative flex h-2.5 w-2.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span></span>
                      <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-widest">Live Sync</span>
@@ -982,7 +1040,7 @@ export default function App() {
                               </tr>
                             </thead>
                             <tbody>
-                              {areaPersonnel.map(p => {
+                              {(areaPersonnel || []).map(p => {
                                 if (!p?.id) return null;
                                 const acc = getAccumulatedData(p.id, p.role);
                                 const um = monthlyData[p.id] || { kepatuhan: 75, pelanggaran: 0, keterangan: '' };
@@ -1060,7 +1118,7 @@ export default function App() {
                           <tr><th className="p-4 border-b border-slate-700 font-bold">Profil Pegawai</th><th className="p-4 border-b border-slate-700 text-center font-bold">ID (Username)</th><th className="p-4 border-b border-slate-700 text-center font-bold">Password Sistem</th><th className="p-4 border-b border-slate-700 text-center font-bold">Tindakan Keamanan</th></tr>
                         </thead>
                         <tbody>
-                          {credSearchResult.length === 0 ? (
+                          {(credSearchResult || []).length === 0 ? (
                             <tr><td colSpan="4" className="p-12 text-center text-slate-500 italic">Data profil tidak ditemukan di server.</td></tr>
                           ) : (
                             credSearchResult.map(p => (
@@ -1113,7 +1171,7 @@ export default function App() {
                 {activeSettingTab === 'kpi' && (
                   <div className="bg-slate-900 p-5 md:p-8 rounded-3xl border border-slate-700 shadow-inner">
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
-                      {safeRoles.filter(r => r?.id === 'SO' || r?.id === 'WFSO').map(r => (
+                      {(safeRoles || []).filter(r => r?.id === 'SO' || r?.id === 'WFSO').map(r => (
                         <div key={r?.id || Math.random()} className="bg-slate-800 p-5 rounded-3xl border border-slate-600 shadow-sm">
                           <h4 className="font-black text-emerald-400 mb-5 border-b border-slate-700 pb-3 flex items-center gap-2 uppercase tracking-wide"><span>Rules {r?.name || 'Unknown'}</span></h4>
                           <div className="overflow-x-auto">
@@ -1143,7 +1201,7 @@ export default function App() {
                       <h4 className="font-black text-emerald-400 mb-5 text-sm flex items-center gap-2 uppercase tracking-widest"><Plus size={18} /> Daftarkan Parameter Baru</h4>
                       <div className="flex flex-col md:flex-row gap-3 items-start md:items-end">
                         <div className="w-full md:flex-1"><label className="block text-[10px] text-emerald-200/70 font-bold uppercase mb-2 tracking-wider">Jabatan</label>
-                          <select className="w-full bg-slate-800 border border-emerald-800/50 rounded-xl p-3 text-white text-sm focus:ring-emerald-500 outline-none shadow-inner" value={newCatRole} onChange={e=>setNewCatRole(e.target.value)}>{safeRoles.filter(r => r?.id === 'SO' || r?.id === 'WFSO').map(r => <option key={r?.id || Math.random()} value={r?.id}>{r?.name}</option>)}</select>
+                          <select className="w-full bg-slate-800 border border-emerald-800/50 rounded-xl p-3 text-white text-sm focus:ring-emerald-500 outline-none shadow-inner" value={newCatRole} onChange={e=>setNewCatRole(e.target.value)}>{(safeRoles || []).filter(r => r?.id === 'SO' || r?.id === 'WFSO').map(r => <option key={r?.id || Math.random()} value={r?.id}>{r?.name}</option>)}</select>
                         </div>
                         <div className="w-full md:flex-1"><label className="block text-[10px] text-emerald-200/70 font-bold uppercase mb-2 tracking-wider">Nama Indikator / Kriteria</label><input type="text" placeholder="Misal: Laporan Harian" className="w-full bg-slate-800 border border-emerald-800/50 rounded-xl p-3 text-white text-sm focus:ring-emerald-500 outline-none shadow-inner" value={newCatLabel} onChange={e=>setNewCatLabel(e.target.value)} /></div>
                         <div className="w-full md:w-32"><label className="block text-[10px] text-emerald-200/70 font-bold uppercase mb-2 tracking-wider">Tipe Aturan</label>
@@ -1160,7 +1218,7 @@ export default function App() {
               </div>
             )}
           </main>
-        </>
+        </div>
       )}
 
       {/* COMPONENT MODAL CUSTOM (ERROR TYPO EXCEL) */}
