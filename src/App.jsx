@@ -165,7 +165,7 @@ export default function App() {
     try {
       const now = new Date();
       const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-      const timestampString = `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()} - Pukul ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} WITA`;
+      const timestampString = `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()} - Pukul ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} WIT`;
       
       setMasterData(prev => ({ ...prev, lastDataUpdate: timestampString }));
       await setDoc(doc(db, 'artifacts', getAppId(), 'settings', 'master'), { lastDataUpdate: timestampString }, { merge: true });
