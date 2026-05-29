@@ -171,7 +171,7 @@ export default function App() {
       const hours = String(now.getHours()).padStart(2, '0');
       const minutes = String(now.getMinutes()).padStart(2, '0');
       
-      const timestampString = `${day} ${month} ${year} - Pukul ${hours}:${minutes} WITA`;
+      const timestampString = `${day} ${month} ${year} - Jam ${hours}:${minutes} WIT`;
       
       setMasterData(prev => ({ ...prev, lastDataUpdate: timestampString }));
       await setDoc(doc(db, 'artifacts', getAppId(), 'settings', 'master'), { lastDataUpdate: timestampString }, { merge: true });
