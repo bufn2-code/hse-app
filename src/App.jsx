@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Database, ClipboardPaste, CheckCircle, Table, Trash2, Edit, AlertTriangle, 
   Download, Search, LayoutDashboard, Calendar, TrendingDown, Settings, 
-  Plus, XCircle, Award, Medal, UserCheck, Lock, User, LogOut, Smartphone, Shield, Clock, Image as ImageIcon
+  Plus, XCircle, Award, Medal, UserCheck, Lock, User, LogOut, Smartphone, Shield, Clock
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
@@ -114,15 +114,14 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [dashboardSearch, setDashboardSearch] = useState({}); 
   
-  // DITAMBAHKAN FIELD FOTO
-  const [newEmp, setNewEmp] = useState({ nama: '', area: '', role: '', foto: '' });
+  const [newEmp, setNewEmp] = useState({ nama: '', area: '', role: '' });
   const [selectedRoleContext, setSelectedRoleContext] = useState('SO');
   const [selectedWeek, setSelectedWeek] = useState('w1');
   const [selectedIndicator, setSelectedIndicator] = useState('obs');
   const [pasteText, setPasteText] = useState('');
 
   const [editingId, setEditingId] = useState(null);
-  const [editFormData, setEditFormData] = useState({ nama: '', area: '', role: '', foto: '' });
+  const [editFormData, setEditFormData] = useState({ nama: '', area: '', role: '' });
   const [deleteModal, setDeleteModal] = useState({ show: false, id: null, nama: '' });
   const [pasteErrors, setPasteErrors] = useState([]);
   
@@ -160,7 +159,7 @@ export default function App() {
   ];
 
   // =====================================================
-  // PENCATAT WAKTU SINKRONISASI
+  // HELPER: PENCATAT WAKTU SINKRONISASI
   // =====================================================
   const updateLastModified = async () => {
     try {
@@ -283,7 +282,7 @@ export default function App() {
   }, [activeTab, dashboardMode, selectedPeriod, personnel, selectedRoleContext]);
 
   // =====================================================
-  // LOGIN SUBMIT (KEBAL TYPO SPASI & HURUF BESAR)
+  // LOGIN SUBMIT
   // =====================================================
   const handleLoginSubmit = (e) => {
     e.preventDefault();
@@ -367,17 +366,17 @@ export default function App() {
     e.preventDefault(); if (!newEmp.nama.trim()) return showToast("Nama karyawan wajib diisi!", "error");
     try {
       const newId = Date.now().toString() + Math.random().toString(36).substr(2, 5);
-      await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', newId), { id: newId, nama: String(newEmp.nama), area: String(newEmp.area), role: String(newEmp.role), foto: String(newEmp.foto || ''), idKaryawan: '', password: '' });
+      await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', newId), { id: newId, nama: String(newEmp.nama), area: String(newEmp.area), role: String(newEmp.role), idKaryawan: '', password: '' });
       await updateLastModified(); 
-      setNewEmp({ nama: '', area: safeAreas[0] || '', role: safeRoles[0]?.id || '', foto: '' }); 
+      setNewEmp({ nama: '', area: safeAreas[0] || '', role: safeRoles[0]?.id || '' }); 
       showToast("Karyawan baru terdaftar!");
     } catch (error) { showToast("Gagal: " + error.message, "error"); }
   };
-  const handleEditClick = (emp) => { setEditingId(emp?.id); setEditFormData({ nama: emp?.nama || '', area: emp?.area || '', role: emp?.role || '', foto: emp?.foto || '' }); };
+  const handleEditClick = (emp) => { setEditingId(emp?.id); setEditFormData({ nama: emp?.nama || '', area: emp?.area || '', role: emp?.role || '' }); };
   const handleSaveEdit = async () => {
     if (!editFormData.nama.trim()) return;
     try { 
-      await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', editingId), { nama: String(editFormData.nama), area: String(editFormData.area), role: String(editFormData.role), foto: String(editFormData.foto || '') }, { merge: true }); 
+      await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', editingId), { nama: String(editFormData.nama), area: String(editFormData.area), role: String(editFormData.role) }, { merge: true }); 
       await updateLastModified(); setEditingId(null); showToast("Profil diubah!"); 
     } catch (error) { showToast("Gagal: " + error.message, "error"); }
   };
@@ -521,50 +520,91 @@ export default function App() {
     return defisit.sort((a, b) => (Number(b.kurang) || 0) - (Number(a.kurang) || 0));
   };
 
-  // EXPORT EXCEL DENGAN STRUKTUR DUA BARIS & KOLOM FOTO
+  // =====================================================
+  // EXPORT HTML TO EXCEL (AGAR RAPI, RATA TENGAH, ADA GARIS)
+  // =====================================================
   const exportToExcel = (area, personnelList) => {
     const cats = getActiveCategories(selectedRoleContext);
     const targetedCats = cats.filter(c => c.isTargeted);
     const untargetedCats = cats.filter(c => !c.isTargeted);
-    
     const roleName = safeRoles.find(r => r.id === selectedRoleContext)?.name?.toUpperCase() || selectedRoleContext.toUpperCase();
+    
+    const totalCols = 2 + (targetedCats.length * 2) + untargetedCats.length + 5; 
 
-    // Baris 1
-    let csvContent = `"${roleName}"\n`;
+    // Rangkaian HTML/CSS agar terbaca rapi oleh MS Excel
+    let htmlContent = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta charset="utf-8" />
+        <style>
+          table { border-collapse: collapse; font-family: Calibri, sans-serif; }
+          th, td { border: 1pt solid black; text-align: center; vertical-align: middle; padding: 4px; }
+          .title { background-color: #F8CBAD; font-size: 14pt; font-weight: bold; }
+          .header-main { background-color: #BDD7EE; font-weight: bold; }
+          .header-cap { background-color: #FCE4D6; font-weight: bold; }
+          .header-green { background-color: #E2EFDA; font-weight: bold; }
+        </style>
+      </head>
+      <body>
+        <table>
+          <thead>
+            <tr>
+              <th colspan="${totalCols}" class="title">${roleName}</th>
+            </tr>
+            <tr>
+              <th rowspan="2" class="header-main">Area<br/>区域</th>
+              <th rowspan="2" class="header-main">Nama<br/>姓名</th>
+    `;
 
-    // Baris 2: Header Atas
-    let row2 = '"Area\n区域","Foto\n个人照片","Nama\n姓名",';
-    targetedCats.forEach(c => { row2 += `"${c.label}",,`; });
-    untargetedCats.forEach(c => { row2 += `"${c.label}",`; });
-    row2 += '"Kepatuhan\n遵守","Pelanggaran\n违反规定","Skor Akhir\n最终分数 (%)","Nilai\n分值","Keterangan\n备注"\n';
-    csvContent += row2;
+    targetedCats.forEach(c => { htmlContent += `<th colspan="2" class="header-main">${c.label}</th>`; });
+    untargetedCats.forEach(c => { htmlContent += `<th rowspan="2" class="header-main">${c.label}</th>`; });
 
-    // Baris 3: Sub-Header Target
-    let row3 = ',,,'; 
-    targetedCats.forEach(() => { row3 += '"Capaian\n成就","Target\n目标",'; });
-    untargetedCats.forEach(() => { row3 += ','; });
-    row3 += ',,,,\n'; 
-    csvContent += row3;
+    htmlContent += `
+              <th rowspan="2" class="header-main">Kepatuhan<br/>遵守</th>
+              <th rowspan="2" class="header-main">Pelanggaran<br/>违反规定</th>
+              <th rowspan="2" class="header-main">Skor Akhir<br/>最终分数 (%)</th>
+              <th rowspan="2" class="header-main">Nilai<br/>分值</th>
+              <th rowspan="2" class="header-main">Keterangan<br/>备注</th>
+            </tr>
+            <tr>
+    `;
 
-    // Data Karyawan (Memasukkan URL Foto)
+    targetedCats.forEach(() => { htmlContent += `<th class="header-cap">Capaian<br/>成就</th><th class="header-cap">Target<br/>目标</th>`; });
+
+    htmlContent += `</tr></thead><tbody>`;
+
     (personnelList || []).forEach(p => {
       if (!p?.id) return;
       const acc = getAccumulatedData(p.id, p.role); 
       const um = monthlyData[p.id] || { kepatuhan: 75, pelanggaran: 0, keterangan: '' }; 
       const calc = calculateScore(acc, um, p.role);
       
-      let row = `"${p?.area || ''}","${p?.foto || ''}", "${p?.nama || ''}",`; 
-      targetedCats.forEach(c => { row += `"${acc[c?.key]||0}","${c.target||0}",`; });
-      untargetedCats.forEach(c => { row += `"${acc[c?.key]||0}",`; });
+      htmlContent += `<tr>`;
+      htmlContent += `<td>${p?.area || ''}</td>`;
+      htmlContent += `<td>${p?.nama || ''}</td>`;
+      
+      targetedCats.forEach(c => {
+        htmlContent += `<td class="header-cap">${acc[c?.key]||0}</td>`;
+        htmlContent += `<td class="header-cap">${c.target||0}</td>`;
+      });
+      
+      untargetedCats.forEach(c => { htmlContent += `<td>${acc[c?.key]||0}</td>`; });
 
-      row += `"${um.kepatuhan||75}","${um.pelanggaran||0}","${calc.sAkhir.toFixed(1)}","${calc.grade}","${um.keterangan||''}"\n`; 
-      csvContent += row;
+      htmlContent += `<td class="header-green">${um.kepatuhan||75}</td>`;
+      htmlContent += `<td class="header-green">${um.pelanggaran||0}</td>`;
+      htmlContent += `<td>${calc.sAkhir.toFixed(1)}</td>`;
+      htmlContent += `<td>${calc.grade}</td>`;
+      htmlContent += `<td>${um.keterangan||''}</td>`;
+      htmlContent += `</tr>`;
     });
 
-    const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8;' }); 
+    htmlContent += `</tbody></table></body></html>`;
+
+    // Menggunakan ekstensi .xls dengan MIME type HTML to Excel Application
+    const blob = new Blob(["\ufeff" + htmlContent], { type: 'application/vnd.ms-excel' }); 
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob); 
-    link.download = `Laporan_KPI_${selectedRoleContext}_${area}_${selectedPeriod}.csv`; 
+    link.download = `Laporan_KPI_${selectedRoleContext}_${area}_${selectedPeriod}.xls`; 
     link.click();
   };
 
@@ -583,7 +623,6 @@ export default function App() {
   const handleDashboardSearchChange = (area, val) => { setDashboardSearch(prev => ({ ...prev, [area]: val })); };
   const searchResult = (personnel || []).filter(p => String(p?.nama || '').toLowerCase().includes(String(searchQuery || '').toLowerCase()));
   const credSearchResult = (personnel || []).filter(p => String(p?.nama || '').toLowerCase().includes(String(credSearchQuery || '').toLowerCase()));
-
 
   // =====================================================
   // RENDER PRAMUAT & JENDELA LOGIN 
@@ -633,8 +672,8 @@ export default function App() {
             <div className="bg-emerald-500/10 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-3 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.2)]">
               <CheckCircle size={36} className="text-emerald-500" />
             </div>
-            <h2 className="text-xl font-black text-white tracking-tighter uppercase">KPI HSE Portal</h2>
-            <p className="text-slate-500 text-xs mt-1">Sistem Evaluasi BUFN 2</p>
+            <h2 className="text-xl font-black text-white tracking-tighter uppercase">Portal KPI HSE BUFN2</h2>
+            <p className="text-slate-500 text-xs mt-1">Sistem Evaluasi Kinerja</p>
           </div>
           
           <form onSubmit={handleLoginSubmit} className="space-y-4">
@@ -644,7 +683,7 @@ export default function App() {
                 <User size={18} className="absolute left-4 top-3.5 text-slate-500" />
                 <input 
                   type="text" 
-                  placeholder="Contoh: SO-001" 
+                  placeholder="Contoh: 822......" 
                   className="w-full bg-slate-800 border border-slate-700 p-3 pl-11 rounded-2xl text-white outline-none focus:border-emerald-500 transition-all font-mono text-sm shadow-inner"
                   value={loginForm.idKaryawan} 
                   onChange={e => setLoginForm({...loginForm, idKaryawan: e.target.value})}
@@ -688,6 +727,7 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL EXIT APP */}
       {showExitModal && (
         <div className="fixed inset-0 bg-slate-900/80 flex items-center justify-center z-[200] p-4 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white rounded-3xl shadow-2xl max-w-xs w-full p-6 text-center border border-slate-200">
@@ -762,6 +802,7 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
             
+            {/* BANNER TIMESTAMP TERAKHIR DIUPDATE */}
             <div className="bg-emerald-50 border border-emerald-200 px-4 py-3 rounded-2xl flex items-center gap-3 shadow-sm mb-4">
               <div className="bg-emerald-100 p-2.5 rounded-xl text-emerald-600"><Clock size={20}/></div>
               <div className="flex-1">
@@ -770,6 +811,11 @@ export default function App() {
                   Last Update : {masterData?.lastDataUpdate || 'Belum ada data'}
                 </p>
               </div>
+              {currentUser?.role === 'Admin' && (
+                <button onClick={updateLastModified} className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] md:text-xs font-bold px-3 py-2 rounded-xl shadow-sm transition-all active:scale-95 whitespace-nowrap border border-emerald-700">
+                  Update Waktu
+                </button>
+              )}
             </div>
 
             {isManager && (
@@ -879,13 +925,6 @@ export default function App() {
               <h2 className="text-lg font-black mb-5 pb-3 border-b border-slate-100 text-slate-800">Tambah Karyawan Baru</h2>
               <form onSubmit={handleAddPersonnel} className="space-y-4">
                 <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Nama Lengkap</label><input type="text" required className="w-full border border-slate-300 p-3 rounded-xl focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-sm shadow-sm" value={newEmp.nama} onChange={e => setNewEmp({...newEmp, nama: e.target.value})} /></div>
-                
-                {/* INPUT URL FOTO */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1"><ImageIcon size={14}/> URL Foto (Opsional)</label>
-                  <input type="text" placeholder="Masukkan Link/URL gambar" className="w-full border border-slate-300 p-3 rounded-xl focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-sm shadow-sm" value={newEmp.foto} onChange={e => setNewEmp({...newEmp, foto: e.target.value})} />
-                </div>
-
                 <div className="grid grid-cols-2 gap-3">
                   <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Smelter</label><select className="w-full border border-slate-300 p-3 rounded-xl focus:ring-emerald-500 text-sm bg-white shadow-sm outline-none" value={newEmp.area} onChange={e => setNewEmp({...newEmp, area: e.target.value})}>{(safeAreas || []).map(a => <option key={a || Math.random()} value={a}>{a}</option>)}</select></div>
                   <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Jabatan</label><select className="w-full border border-slate-300 p-3 rounded-xl focus:ring-emerald-500 text-sm bg-white shadow-sm outline-none" value={newEmp.role} onChange={e => setNewEmp({...newEmp, role: e.target.value})}>{(safeRoles || []).map(r => <option key={r?.id || Math.random()} value={r?.id}>{r?.name}</option>)}</select></div>
@@ -901,10 +940,10 @@ export default function App() {
               </div>
               <div className="overflow-x-auto border border-slate-200 rounded-2xl shadow-inner max-h-[500px]">
                 <table className="w-full text-left text-sm whitespace-nowrap">
-                  <thead className="bg-slate-100 text-slate-600 sticky top-0 z-10"><tr><th className="p-4 font-bold">Foto</th><th className="p-4 font-bold">Nama Lengkap</th><th className="p-4 text-center font-bold">Smelter</th><th className="p-4 text-center font-bold">Jabatan Aktif</th><th className="p-4 text-center font-bold">Aksi</th></tr></thead>
+                  <thead className="bg-slate-100 text-slate-600 sticky top-0 z-10"><tr><th className="p-4 font-bold">Nama Lengkap</th><th className="p-4 text-center font-bold">Smelter</th><th className="p-4 text-center font-bold">Jabatan Aktif</th><th className="p-4 text-center font-bold">Aksi</th></tr></thead>
                   <tbody>
                     {(searchResult || []).length === 0 ? (
-                      <tr><td colSpan="5" className="text-center p-10 text-slate-500 border-dashed bg-slate-50 font-medium">Karyawan tidak ditemukan.</td></tr>
+                      <tr><td colSpan="4" className="text-center p-10 text-slate-500 border-dashed bg-slate-50 font-medium">Karyawan tidak ditemukan.</td></tr>
                     ) : (
                       searchResult.map(p => {
                         const isAreaUnknown = !safeAreas.includes(p?.area);
@@ -912,23 +951,13 @@ export default function App() {
                         <tr key={p?.id || Math.random()} className={`border-b border-slate-100 hover:bg-slate-50 transition-colors ${isAreaUnknown ? 'bg-red-50/50' : ''}`}>
                           {editingId === p?.id ? (
                             <>
-                              <td className="p-2 text-center" colSpan="2">
-                                <input type="text" placeholder="URL Foto" className="border border-slate-300 p-2 w-full text-xs rounded-lg focus:ring-emerald-500 outline-none mb-1" value={editFormData.foto} onChange={(e) => setEditFormData({...editFormData, foto: e.target.value})} />
-                                <input type="text" placeholder="Nama" className="border border-slate-300 p-2 w-full text-sm rounded-lg focus:ring-emerald-500 outline-none" value={editFormData.nama} onChange={(e) => setEditFormData({...editFormData, nama: e.target.value})} />
-                              </td>
+                              <td className="p-2"><input type="text" className="border border-slate-300 p-2 w-full text-sm rounded-lg focus:ring-emerald-500 outline-none" value={editFormData.nama} onChange={(e) => setEditFormData({...editFormData, nama: e.target.value})} /></td>
                               <td className="p-2 text-center"><select className="border border-slate-300 p-2 text-sm rounded-lg focus:ring-emerald-500 bg-white outline-none" value={editFormData.area} onChange={(e) => setEditFormData({...editFormData, area: e.target.value})}>{(safeAreas || []).map(a => <option key={a || Math.random()} value={a}>{a}</option>)}</select></td>
                               <td className="p-2 text-center"><select className="border border-slate-300 p-2 text-sm rounded-lg focus:ring-emerald-500 bg-white outline-none" value={editFormData.role} onChange={(e) => setEditFormData({...editFormData, role: e.target.value})}>{(safeRoles || []).map(r => <option key={r?.id || Math.random()} value={r?.id}>{r?.name}</option>)}</select></td>
                               <td className="p-2 text-center space-x-2"><button onClick={handleSaveEdit} className="text-white bg-emerald-600 px-4 py-2 rounded-lg font-bold text-xs shadow-md">Simpan</button><button onClick={() => setEditingId(null)} className="bg-slate-200 px-4 py-2 rounded-lg font-bold text-xs text-slate-700">Batal</button></td>
                             </>
                           ) : (
                             <>
-                              <td className="p-4 text-center">
-                                {p?.foto ? (
-                                  <img src={p.foto} alt="foto" className="w-10 h-10 rounded-full object-cover border-2 border-slate-200" onError={(e)=>{e.target.style.display='none'}} />
-                                ) : (
-                                  <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-400 mx-auto"><User size={20}/></div>
-                                )}
-                              </td>
                               <td className="p-4 font-bold text-slate-700">{p?.nama || '-'}</td>
                               <td className="p-4 text-center font-bold text-slate-500">{p?.area || '-'} {isAreaUnknown && <span className="text-red-500 text-[10px] block mt-1">(Perlu Diupdate)</span>}</td>
                               <td className="p-4 text-center"><span className="px-3 py-1 bg-slate-200/80 rounded-lg text-xs font-bold text-slate-600 border border-slate-300">{safeRoles.find(r=>r?.id===p?.role)?.name || p?.role || '-'}</span></td>
@@ -1001,6 +1030,7 @@ export default function App() {
              <div className="mb-6 pb-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
                <h2 className="font-black text-xl md:text-2xl text-slate-800">Laporan Akhir Kinerja (KPI)</h2>
                
+               {/* INDIKATOR STATUS DATA */}
                <div className="bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 flex items-center gap-2 w-fit">
                  <span className="relative flex h-2.5 w-2.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span></span>
                  <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-widest">Live Sync</span>
@@ -1036,13 +1066,8 @@ export default function App() {
                             return (
                               <tr key={p.id} className="border-b border-slate-200 hover:bg-slate-50 transition-colors">
                                 <td className="p-4">
-                                  <div className="flex items-center gap-3">
-                                    {p?.foto ? <img src={p.foto} alt="foto" className="w-8 h-8 rounded-full object-cover bg-slate-200 border border-slate-300" onError={(e)=>{e.target.style.display='none'}}/> : <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-400"><User size={16}/></div>}
-                                    <div>
-                                      <span className="font-bold text-slate-800 text-sm block mb-1">{p?.nama || '-'}</span> 
-                                      <span className="bg-slate-200 text-slate-600 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider">{p?.area || '-'}</span>
-                                    </div>
-                                  </div>
+                                  <span className="font-bold text-slate-800 text-sm block mb-1">{p?.nama || '-'}</span> 
+                                  <span className="bg-slate-200 text-slate-600 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider">{p?.area || '-'}</span>
                                 </td>
                                 {(getActiveCategories(selectedRoleContext) || []).map(c => <td key={c?.key || Math.random()} className="p-3 text-center border-l border-slate-200 font-bold text-slate-600">{acc[c?.key]||0}</td>)}
                                 
