@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Database, ClipboardPaste, CheckCircle, Table, Trash2, Edit, AlertTriangle, 
   Download, Search, LayoutDashboard, Calendar, TrendingDown, Settings, 
-  Plus, XCircle, Award, Medal, UserCheck, Lock, User, LogOut, Smartphone, Shield, Clock
+  Plus, XCircle, Award, Medal, UserCheck, Lock, User, LogOut, Smartphone, Shield, Clock, Image as ImageIcon
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
@@ -114,14 +114,15 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [dashboardSearch, setDashboardSearch] = useState({}); 
   
-  const [newEmp, setNewEmp] = useState({ nama: '', area: '', role: '' });
+  // DITAMBAHKAN FIELD FOTO
+  const [newEmp, setNewEmp] = useState({ nama: '', area: '', role: '', foto: '' });
   const [selectedRoleContext, setSelectedRoleContext] = useState('SO');
   const [selectedWeek, setSelectedWeek] = useState('w1');
   const [selectedIndicator, setSelectedIndicator] = useState('obs');
   const [pasteText, setPasteText] = useState('');
 
   const [editingId, setEditingId] = useState(null);
-  const [editFormData, setEditFormData] = useState({ nama: '', area: '', role: '' });
+  const [editFormData, setEditFormData] = useState({ nama: '', area: '', role: '', foto: '' });
   const [deleteModal, setDeleteModal] = useState({ show: false, id: null, nama: '' });
   const [pasteErrors, setPasteErrors] = useState([]);
   
@@ -139,15 +140,15 @@ export default function App() {
   const [loadingYearly, setLoadingYearly] = useState(false);
 
   const getAppId = () => typeof __app_id !== 'undefined' ? __app_id : 'bufn2-kpi-app';
-  const safeAreas = masterData?.areas && masterData.areas.length > 0 ? masterData.areas : defaultSettings.areas;
-  const safeRoles = masterData?.roles && masterData.roles.length > 0 ? masterData.roles : defaultSettings.roles;
-  const getActiveCategories = (roleId) => (masterData?.categories && masterData.categories[roleId]) || [];
+  const safeAreas = Array.isArray(masterData?.areas) && masterData.areas.length > 0 ? masterData.areas : defaultSettings.areas;
+  const safeRoles = Array.isArray(masterData?.roles) && masterData.roles.length > 0 ? masterData.roles : defaultSettings.roles;
+  const getActiveCategories = (roleId) => Array.isArray(masterData?.categories?.[roleId]) ? masterData.categories[roleId] : [];
 
   const getAllUniqueCategories = () => {
     const allCats = [];
     safeRoles.forEach(r => {
-      getActiveCategories(r.id).forEach(c => {
-        if (!allCats.find(existing => existing.key === c.key)) allCats.push(c);
+      getActiveCategories(r?.id).forEach(c => {
+        if (c && !allCats.find(existing => existing?.key === c?.key)) allCats.push(c);
       });
     });
     return allCats;
@@ -159,99 +160,70 @@ export default function App() {
   ];
 
   // =====================================================
-  // HELPER: PENCATAT WAKTU OTOMATIS (AUTO-TIMESTAMP)
+  // PENCATAT WAKTU SINKRONISASI
   // =====================================================
   const updateLastModified = async () => {
     try {
       const now = new Date();
       const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-      const day = now.getDate();
-      const month = months[now.getMonth()];
-      const year = now.getFullYear();
-      const hours = String(now.getHours()).padStart(2, '0');
-      const minutes = String(now.getMinutes()).padStart(2, '0');
-      
-      const timestampString = `${day} ${month} ${year} - Jam ${hours}:${minutes} WIT`;
+      const timestampString = `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()} - Pukul ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} WITA`;
       
       setMasterData(prev => ({ ...prev, lastDataUpdate: timestampString }));
       await setDoc(doc(db, 'artifacts', getAppId(), 'settings', 'master'), { lastDataUpdate: timestampString }, { merge: true });
-      showToast("Waktu sinkronisasi berhasil diperbarui!");
-    } catch (error) {
-      console.error("Gagal update timestamp:", error);
-    }
+    } catch (error) { console.error("Gagal update timestamp:", error); }
   };
 
   // =====================================================
-  // 1. SISTEM JEBAKAN TOMBOL KEMBALI HP
+  // INTERSEPTOR NAVIGATION BACK BUTTON HP
   // =====================================================
   useEffect(() => {
     window.history.pushState({ trap: true }, '');
-    const handlePopState = (e) => {
-      e.preventDefault();
+    const handlePopState = (e) => { 
+      e.preventDefault(); 
       setShowExitModal(true); 
+      window.history.pushState({ trap: true }, ''); 
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  const cancelExitApp = () => {
-    setShowExitModal(false);
-    window.history.pushState({ trap: true }, '');
-  };
-
-  const confirmExitApp = () => {
-    setShowExitModal(false);
-    window.close();
-    setTimeout(() => { window.history.back(); }, 100);
-  };
+  const cancelExitApp = () => { setShowExitModal(false); };
+  const confirmExitApp = () => { setShowExitModal(false); window.close(); setTimeout(() => { window.history.go(-2); }, 100); };
 
   // =====================================================
-  // 2. SISTEM POPUP INSTALASI PWA
+  // POPUP MANIFEST PWA
   // =====================================================
   useEffect(() => {
     const handleInstallPrompt = (e) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-      setShowInstallPopup(true); 
+      e.preventDefault(); setDeferredPrompt(e); setShowInstallPopup(true); 
     };
     window.addEventListener('beforeinstallprompt', handleInstallPrompt);
-    
     const hasSeenPopup = localStorage.getItem('bufn2_install_prompt');
-    if (!hasSeenPopup) {
-      setTimeout(() => setShowInstallPopup(true), 3000);
-    }
+    if (!hasSeenPopup) setTimeout(() => setShowInstallPopup(true), 3000);
     return () => window.removeEventListener('beforeinstallprompt', handleInstallPrompt);
   }, []);
 
   const triggerNativeInstall = async () => {
-    if (!deferredPrompt) {
-      showToast("Gunakan browser Chrome/Safari, lalu pilih 'Tambahkan ke Layar Utama'", "error");
-      return;
-    }
+    if (!deferredPrompt) return showToast("Gunakan browser Chrome/Safari, lalu pilih 'Tambahkan ke Layar Utama'", "error");
     deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      showToast("Aplikasi berhasil diinstal ke HP Anda!");
-      localStorage.setItem('bufn2_install_prompt', 'done');
-    }
-    setDeferredPrompt(null);
-    setShowInstallPopup(false);
+    if (outcome === 'accepted') { showToast("Aplikasi berhasil diinstal ke HP Anda!"); localStorage.setItem('bufn2_install_prompt', 'done'); }
+    setDeferredPrompt(null); setShowInstallPopup(false);
   };
 
   // =====================================================
-  // 3. FIRESTORE SYNC & AUTO LOGIN SESSION
+  // RESTORE LOGIN & FIRESTORE SYNC
   // =====================================================
   useEffect(() => {
-    const savedSession = localStorage.getItem('bufn2_user_session');
-    if (savedSession) {
-      try { setCurrentUser(JSON.parse(savedSession)); } catch (e) { localStorage.removeItem('bufn2_user_session'); }
+    const savedUser = localStorage.getItem('bufn2_user_session');
+    if (savedUser) {
+      try { setCurrentUser(JSON.parse(savedUser)); } 
+      catch (e) { localStorage.removeItem('bufn2_user_session'); }
     }
     setIsCheckingSession(false);
 
     const unsubAuth = onAuthStateChanged(auth, async (userObj) => {
-      if (!userObj) {
-        try { await signInAnonymously(auth); } catch (e) { console.error("Koneksi ditolak HP:", e); }
-      }
+      if (!userObj) try { await signInAnonymously(auth); } catch (e) { console.error(e); }
     });
 
     const appId = getAppId();
@@ -260,17 +232,16 @@ export default function App() {
     const unsubSettings = onSnapshot(doc(db, 'artifacts', appId, 'settings', 'master'), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        const validatedRoles = data.roles && data.roles.length > 0 ? data.roles : defaultSettings.roles;
-        if (!validatedRoles.find(r => r.id === 'Admin')) validatedRoles.push({ id: 'Admin', name: 'Admin Sistem' });
-        if (!validatedRoles.find(r => r.id === 'Foreman')) validatedRoles.push({ id: 'Foreman', name: 'Foreman' });
+        const validatedRoles = Array.isArray(data?.roles) && data.roles.length > 0 ? data.roles : defaultSettings.roles;
+        if (!validatedRoles.find(r => r?.id === 'Admin')) validatedRoles.push({ id: 'Admin', name: 'Admin Sistem' });
+        if (!validatedRoles.find(r => r?.id === 'Foreman')) validatedRoles.push({ id: 'Foreman', name: 'Foreman' });
 
-        const safeData = {
-          areas: data.areas && data.areas.length > 0 ? data.areas : defaultSettings.areas,
+        setMasterData({
+          areas: Array.isArray(data?.areas) && data.areas.length > 0 ? data.areas : defaultSettings.areas,
           roles: validatedRoles,
-          categories: data.categories || defaultSettings.categories,
-          lastDataUpdate: data.lastDataUpdate || '' 
-        };
-        setMasterData(safeData);
+          categories: data?.categories || defaultSettings.categories,
+          lastDataUpdate: data?.lastDataUpdate || '' 
+        });
       } else {
         setDoc(doc(db, 'artifacts', appId, 'settings', 'master'), defaultSettings);
       }
@@ -279,47 +250,49 @@ export default function App() {
     unsubs.push(unsubSettings);
 
     const unsubPersonnel = onSnapshot(collection(db, 'artifacts', appId, 'personnel'), (s) => { 
-      const d = []; s.forEach(doc => { const data = doc.data(); if (data?.nama) d.push(data); }); setPersonnel(d); 
+      const d = []; 
+      s.forEach(doc => { 
+        const data = doc.data(); 
+        if (data && typeof data === 'object') d.push(data); 
+      }); 
+      setPersonnel(d); 
     });
     unsubs.push(unsubPersonnel);
 
-    const timeoutDb = setTimeout(() => setIsDbReady(true), 3000);
-    return () => { unsubAuth(); unsubs.forEach(u => u()); clearTimeout(timeoutDb); };
+    return () => { unsubAuth(); unsubs.forEach(u => u()); };
   }, []);
 
   useEffect(() => {
     const appId = getAppId();
     const unsubW = onSnapshot(collection(db, 'artifacts', appId, `weekly_${selectedPeriod}`), (s) => {
-      const d = {}; s.forEach(doc => d[doc.id] = doc.data()); setWeeklyData(d);
+      const d = {}; s.forEach(doc => d[doc.id] = doc.data() || {}); setWeeklyData(d);
     });
     const unsubM = onSnapshot(collection(db, 'artifacts', appId, `monthly_${selectedPeriod}`), (s) => {
-      const d = {}; s.forEach(doc => d[doc.id] = doc.data()); setMonthlyData(d);
+      const d = {}; s.forEach(doc => d[doc.id] = doc.data() || {}); setMonthlyData(d);
     });
     return () => { unsubW(); unsubM(); };
   }, [selectedPeriod]);
 
-  const isManager = currentUser && ['Admin', 'Foreman', 'WFSO'].includes(currentUser.role);
+  const isManager = Boolean(currentUser && ['Admin', 'Foreman', 'WFSO'].includes(currentUser?.role));
   useEffect(() => {
-    if (currentUser && !isManager) setSelectedRoleContext(currentUser.role);
+    if (currentUser && !isManager) setSelectedRoleContext(currentUser?.role || 'SO');
   }, [currentUser, isManager]);
 
   useEffect(() => {
-    if (activeTab === 'dashboard' && dashboardMode === 'tahunan' && personnel.length > 0) {
-      calculateYearlyBest();
-    }
+    if (activeTab === 'dashboard' && dashboardMode === 'tahunan' && Array.isArray(personnel) && personnel.length > 0) calculateYearlyBest();
   }, [activeTab, dashboardMode, selectedPeriod, personnel, selectedRoleContext]);
 
   // =====================================================
-  // 5. LOGIN & LOGOUT EXECUTOR
+  // LOGIN SUBMIT (KEBAL TYPO SPASI & HURUF BESAR)
   // =====================================================
   const handleLoginSubmit = (e) => {
     e.preventDefault();
-    const username = loginForm.idKaryawan.trim();
-    const password = loginForm.password.trim();
+    const cleanUsername = String(loginForm.idKaryawan).trim().toLowerCase();
+    const cleanPassword = String(loginForm.password).trim();
 
-    if (!username || !password) return showToast("Harap isi seluruh kolom!", "error");
+    if (!cleanUsername || !cleanPassword) return showToast("Harap isi seluruh kolom!", "error");
 
-    if (username.toLowerCase() === 'admin' && password === 'adminbufn2') {
+    if (cleanUsername === 'admin' && cleanPassword === 'adminbufn2') {
       const adminData = { id: 'master-admin', nama: 'Super Admin HSE', role: 'Admin', area: 'All Smelters', idKaryawan: 'admin' };
       setCurrentUser(adminData);
       localStorage.setItem('bufn2_user_session', JSON.stringify(adminData));
@@ -328,11 +301,16 @@ export default function App() {
       return;
     }
 
-    const foundUser = personnel.find(p => p.idKaryawan && p.idKaryawan.trim() === username && p.password && p.password.trim() === password);
+    const foundUser = personnel.find(p => {
+      const dbUser = String(p?.idKaryawan || '').trim().toLowerCase();
+      const dbPass = String(p?.password || '').trim();
+      return dbUser === cleanUsername && dbPass === cleanPassword;
+    });
+
     if (foundUser) {
       setCurrentUser(foundUser);
       localStorage.setItem('bufn2_user_session', JSON.stringify(foundUser));
-      showToast(`Selamat datang, ${foundUser.nama}!`);
+      showToast(`Selamat datang, ${foundUser?.nama || 'User'}!`);
       setActiveTab('dashboard');
     } else {
       showToast("ID Karyawan atau Password salah!", "error");
@@ -346,36 +324,31 @@ export default function App() {
     showToast("Berhasil keluar.");
   };
 
-  const handleTabClick = (tabName) => {
-    setActiveTab(tabName);
-  };
-
-  const scrollToView = (e) => {
-    setTimeout(() => { e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 300);
-  };
+  const handleTabClick = (tabName) => { setActiveTab(tabName); };
+  const scrollToView = (e) => { setTimeout(() => { e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 300); };
 
   // =====================================================
-  // OPERASIONAL KARYAWAN & MASTER DATA
+  // OPERASIONAL CORE SYSTEM
   // =====================================================
   const saveMasterData = async (newData) => {
-    try { await setDoc(doc(db, 'artifacts', getAppId(), 'settings', 'master'), newData); showToast("Master data disimpan!"); } 
-    catch (error) { showToast("Gagal menyimpan: " + error.message, "error"); }
+    try { 
+      await setDoc(doc(db, 'artifacts', getAppId(), 'settings', 'master'), newData); 
+      await updateLastModified(); showToast("Master data disimpan!"); 
+    } catch (error) { showToast("Gagal: " + error.message, "error"); }
   };
   const handleAddArea = () => {
-    if(!newArea.trim()) return;
-    const formattedArea = newArea.trim().replace(/\b\w/g, l => l.toUpperCase());
+    if(!newArea.trim()) return; const formattedArea = String(newArea).trim().replace(/\b\w/g, l => l.toUpperCase());
     if(safeAreas.includes(formattedArea)) return showToast("Smelter sudah terdaftar!", "error");
-    saveMasterData({ ...masterData, areas: [...safeAreas, formattedArea] });
-    setNewArea('');
+    saveMasterData({ ...masterData, areas: [...safeAreas, formattedArea] }); setNewArea('');
   };
   const handleDeleteArea = (areaTarget) => {
-    if(confirm(`Hapus ${areaTarget} dari master sistem?`)) { saveMasterData({ ...masterData, areas: safeAreas.filter(a => a !== areaTarget) }); }
+    if(confirm(`Hapus ${areaTarget}?`)) { saveMasterData({ ...masterData, areas: safeAreas.filter(a => a !== areaTarget) }); }
   };
   const handleUpdateCategory = (roleId, catIndex, field, value) => {
     const updatedCategories = { ...masterData.categories };
-    if (field === 'target') updatedCategories[roleId][catIndex].target = Number(value);
-    if (field === 'label') updatedCategories[roleId][catIndex].label = value;
-    if (field === 'isTargeted') { updatedCategories[roleId][catIndex].isTargeted = value === 'true'; if (value !== 'true') updatedCategories[roleId][catIndex].target = 0; }
+    if (field === 'target') updatedCategories[roleId][catIndex].target = Number(value) || 0;
+    if (field === 'label') updatedCategories[roleId][catIndex].label = String(value);
+    if (field === 'isTargeted') { updatedCategories[roleId][catIndex].isTargeted = Boolean(value); if (!value) updatedCategories[roleId][catIndex].target = 0; }
     saveMasterData({ ...masterData, categories: updatedCategories });
   };
   const handleDeleteCategory = (roleId, catIndex) => {
@@ -383,10 +356,10 @@ export default function App() {
     updatedCategories[roleId].splice(catIndex, 1); saveMasterData({ ...masterData, categories: updatedCategories });
   };
   const handleAddCategory = () => {
-    if (!newCatLabel.trim()) return showToast("Nama indikator wajib diisi!", "error");
+    if (!newCatLabel.trim()) return showToast("Nama kriteria wajib diisi!", "error");
     const updatedCategories = { ...masterData.categories }; const newKey = 'cat_' + Date.now();
-    if (!updatedCategories[newCatRole]) updatedCategories[newCatRole] = [];
-    updatedCategories[newCatRole].push({ key: newKey, label: newCatLabel, target: newCatType === 'target' ? Number(newCatTarget) : 0, isTargeted: newCatType === 'target' });
+    if (!Array.isArray(updatedCategories[newCatRole])) updatedCategories[newCatRole] = [];
+    updatedCategories[newCatRole].push({ key: newKey, label: String(newCatLabel), target: newCatType === 'target' ? Number(newCatTarget) : 0, isTargeted: newCatType === 'target' });
     saveMasterData({ ...masterData, categories: updatedCategories }); setNewCatLabel(''); setNewCatTarget(0);
   };
 
@@ -394,70 +367,54 @@ export default function App() {
     e.preventDefault(); if (!newEmp.nama.trim()) return showToast("Nama karyawan wajib diisi!", "error");
     try {
       const newId = Date.now().toString() + Math.random().toString(36).substr(2, 5);
-      await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', newId), { id: newId, nama: newEmp.nama, area: newEmp.area, role: newEmp.role, idKaryawan: '', password: '' });
-      await updateLastModified();
-      setNewEmp({ nama: '', area: safeAreas[0] || '', role: safeRoles[0]?.id || '' }); showToast("Karyawan baru terdaftar!");
-    } catch (error) { showToast("Gagal menyimpan: " + error.message, "error"); }
+      await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', newId), { id: newId, nama: String(newEmp.nama), area: String(newEmp.area), role: String(newEmp.role), foto: String(newEmp.foto || ''), idKaryawan: '', password: '' });
+      await updateLastModified(); 
+      setNewEmp({ nama: '', area: safeAreas[0] || '', role: safeRoles[0]?.id || '', foto: '' }); 
+      showToast("Karyawan baru terdaftar!");
+    } catch (error) { showToast("Gagal: " + error.message, "error"); }
   };
-
-  const handleEditClick = (emp) => {
-    setEditingId(emp.id);
-    setEditFormData({ nama: emp.nama || '', area: emp.area || '', role: emp.role || '' });
-  };
-
+  const handleEditClick = (emp) => { setEditingId(emp?.id); setEditFormData({ nama: emp?.nama || '', area: emp?.area || '', role: emp?.role || '', foto: emp?.foto || '' }); };
   const handleSaveEdit = async () => {
     if (!editFormData.nama.trim()) return;
-    try { await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', editingId), { nama: editFormData.nama, area: editFormData.area, role: editFormData.role }, { merge: true }); await updateLastModified(); setEditingId(null); showToast("Profil diubah!"); } 
-    catch (error) { showToast("Gagal mengubah: " + error.message, "error"); }
+    try { 
+      await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', editingId), { nama: String(editFormData.nama), area: String(editFormData.area), role: String(editFormData.role), foto: String(editFormData.foto || '') }, { merge: true }); 
+      await updateLastModified(); setEditingId(null); showToast("Profil diubah!"); 
+    } catch (error) { showToast("Gagal: " + error.message, "error"); }
   };
-
   const confirmDelete = async () => {
-    try { await deleteDoc(doc(db, 'artifacts', getAppId(), 'personnel', deleteModal.id)); await updateLastModified(); setDeleteModal({ show: false, id: null, nama: '' }); showToast("Data dihapus permanen!"); } 
-    catch (error) { showToast("Gagal menghapus: " + error.message, "error"); }
+    try { 
+      await deleteDoc(doc(db, 'artifacts', getAppId(), 'personnel', deleteModal.id)); 
+      await updateLastModified(); setDeleteModal({ show: false, id: null, nama: '' }); showToast("Data dihapus!"); 
+    } catch (error) { showToast("Gagal: " + error.message, "error"); }
   };
-
-  const handleEditCredClick = (emp) => {
-    setEditingCredId(emp.id);
-    setCredFormData({ idKaryawan: emp.idKaryawan || '', password: emp.password || '' });
-  };
-
+  const handleEditCredClick = (emp) => { setEditingCredId(emp?.id); setCredFormData({ idKaryawan: emp?.idKaryawan || '', password: emp?.password || '' }); };
   const handleSaveCred = async () => {
-    try { await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', editingCredId), credFormData, { merge: true }); setEditingCredId(null); showToast("Akses Login diperbarui!"); } 
-    catch (error) { showToast("Gagal mengubah akses: " + error.message, "error"); }
+    try { await setDoc(doc(db, 'artifacts', getAppId(), 'personnel', editingCredId), { idKaryawan: String(credFormData.idKaryawan), password: String(credFormData.password) }, { merge: true }); setEditingCredId(null); showToast("Akses Login diperbarui!"); } 
+    catch (error) { showToast("Gagal: " + error.message, "error"); }
   };
   
   // =====================================================
-  // DATA PASTE EXCEL (AUTO-DETECT GLOBAL & TIMESTAMP)
+  // DATA PASTE EXCEL & LOGIKA MATEMATIKA
   // =====================================================
   const handleProcessPaste = async () => {
     if (!pasteText.trim()) return showToast('Teks paste kosong!', 'error');
-    const lines = pasteText.split('\n');
-    const counts = {}; let lineTotal = 0;
-
+    const lines = String(pasteText).split('\n'); const counts = {}; let lineTotal = 0;
     lines.forEach(line => {
-      const parts = line.split('\t').map(p => p.trim()).filter(p => p !== '');
-      if (parts.length < 1) return;
-      const namaPaste = parts[0].toLowerCase();
-      counts[namaPaste] = (counts[namaPaste] || 0) + 1; lineTotal++;
+      const parts = String(line).split('\t').map(p => String(p).trim()).filter(p => p !== ''); if (parts.length < 1) return;
+      const namaPaste = parts[0].toLowerCase(); counts[namaPaste] = (counts[namaPaste] || 0) + 1; lineTotal++;
     });
-
     const updates = {}; let matchedCount = 0; let notFoundNames = [];
-
     Object.keys(counts).forEach(namaKey => {
-      const emp = personnel.find(p => p.nama.toLowerCase() === namaKey);
-      if (emp) {
-        if (!updates[emp.id]) updates[emp.id] = {};
-        if (!updates[emp.id][selectedWeek]) updates[emp.id][selectedWeek] = {};
+      const emp = personnel.find(p => String(p?.nama || '').toLowerCase() === namaKey);
+      if (emp && emp.id) {
+        if (!updates[emp.id]) updates[emp.id] = {}; if (!updates[emp.id][selectedWeek]) updates[emp.id][selectedWeek] = {};
         const oldVal = weeklyData[emp.id]?.[selectedWeek]?.[selectedIndicator] || 0;
-        updates[emp.id][selectedWeek][selectedIndicator] = oldVal + counts[namaKey];
-        matchedCount++;
+        updates[emp.id][selectedWeek][selectedIndicator] = oldVal + counts[namaKey]; matchedCount++;
       } else { notFoundNames.push(namaKey); }
     });
-
     try {
       for (const empId of Object.keys(updates)) { await setDoc(doc(db, 'artifacts', getAppId(), `weekly_${selectedPeriod}`, empId), updates[empId], { merge: true }); }
-      await updateLastModified();
-      setPasteText(''); showToast(`Berhasil merekap ${lineTotal} data!`);
+      await updateLastModified(); setPasteText(''); showToast(`Berhasil merekap ${lineTotal} data!`);
       if(notFoundNames.length > 0) setPasteErrors(Array.from(new Set(notFoundNames)));
     } catch (error) { showToast("Gagal: " + error.message, "error"); }
   };
@@ -466,110 +423,170 @@ export default function App() {
     try { await setDoc(doc(db, 'artifacts', getAppId(), `monthly_${selectedPeriod}`, empId), { [field]: value }, { merge: true }); await updateLastModified(); } catch (error) { console.error(error); }
   };
 
-  // =====================================================
-  // ENGINE LOGIKA RUMUS MATEMATIKA KPI
-  // =====================================================
   const getAccumulatedData = (empId, role) => {
     const empData = weeklyData[empId] || {}; const total = {};
-    getActiveCategories(role).forEach(c => total[c.key] = 0);
-    Object.values(empData).forEach(weekData => { getActiveCategories(role).forEach(c => { total[c.key] += (weekData[c.key] || 0); }); });
+    getActiveCategories(role).forEach(c => { if(c?.key) total[c.key] = 0; });
+    
+    Object.values(empData).forEach(weekData => { 
+      if (weekData && typeof weekData === 'object') {
+        getActiveCategories(role).forEach(c => { 
+          if(c?.key) total[c.key] += (Number(weekData[c.key]) || 0); 
+        }); 
+      }
+    });
     return total;
   };
 
   const calculateScore = (acc, um, roleId) => {
     const cats = getActiveCategories(roleId);
-    const targetedCats = cats.filter(c => c.isTargeted);
-    const untargetedCats = cats.filter(c => !c.isTargeted);
+    const targetedCats = cats.filter(c => c?.isTargeted);
+    const untargetedCats = cats.filter(c => !c?.isTargeted);
     const weightPerCat = targetedCats.length > 0 ? (100 / targetedCats.length) : 0; 
     let sAwal = targetedCats.length > 0 ? 100 : 0;
-    targetedCats.forEach(c => { const val = acc[c.key] || 0; if (val < c.target) { sAwal -= (((c.target - val) / c.target) * weightPerCat); } });
+    
+    targetedCats.forEach(c => { 
+      const val = Number(acc[c?.key]) || 0; 
+      if (c?.target && val < Number(c.target)) { sAwal -= (((Number(c.target) - val) / Number(c.target)) * weightPerCat); } 
+    });
     if(sAwal < 0) sAwal = 0; 
 
-    let tPoin = Number(um.kepatuhan) || 75; 
-    untargetedCats.forEach(c => { tPoin += (acc[c.key] || 0) }); 
-    const penalti = (Number(um.pelanggaran) || 0) * -5;
-    const sAkhir = sAwal + tPoin + penalti;
+    let tPoin = Number(um?.kepatuhan) || 75; untargetedCats.forEach(c => { if(c?.key) tPoin += (Number(acc[c.key]) || 0) }); 
+    const penalti = (Number(um?.pelanggaran) || 0) * -5; const sAkhir = sAwal + tPoin + penalti;
     
     let grade = 'D'; const isAwalSempurna = Math.abs(sAwal - 100) < 0.1; 
-    const ket = (um.keterangan || "").toLowerCase(); const hasIjin = ket.includes("ijin") || ket.includes("cuti");
+    const ket = String(um?.keterangan || "").toLowerCase(); const hasIjin = ket.includes("ijin") || ket.includes("cuti");
 
     if (isAwalSempurna) { if (sAkhir >= 170) grade = 'A'; else if (sAkhir >= 141) grade = 'B'; else if (sAkhir >= 100) grade = 'C'; } 
     else if (hasIjin) { grade = 'C'; }
-    return { sAwal, tPoin, penalti, sAkhir, grade };
+    
+    return { sAwal: sAwal || 0, tPoin: tPoin || 0, penalti: penalti || 0, sAkhir: sAkhir || 0, grade };
   };
 
   const calculateYearlyBest = async () => {
-    setLoadingYearly(true); const year = selectedPeriod.split('-')[0]; const appId = getAppId(); const yearlyScores = {};
+    setLoadingYearly(true); const year = String(selectedPeriod).split('-')[0]; const appId = getAppId(); const yearlyScores = {};
     try {
       for (let m = 1; m <= 12; m++) {
         const periodKey = `${year}-${String(m).padStart(2, '0')}`;
         const [wSnap, mSnap] = await Promise.all([ getDocs(collection(db, 'artifacts', appId, `weekly_${periodKey}`)), getDocs(collection(db, 'artifacts', appId, `monthly_${periodKey}`)) ]);
-        const wData = {}; wSnap.forEach(doc => { wData[doc.id] = doc.data(); });
-        const mData = {}; mSnap.forEach(doc => { mData[doc.id] = doc.data(); });
+        const wData = {}; wSnap.forEach(doc => { wData[doc.id] = doc.data() || {}; });
+        const mData = {}; mSnap.forEach(doc => { mData[doc.id] = doc.data() || {}; });
 
-        personnel.filter(p => p.role === selectedRoleContext).forEach(p => {
-          if (!yearlyScores[p.id]) yearlyScores[p.id] = { id: p.id, nama: p.nama, area: p.area, totalScore: 0, monthsActive: 0 };
+        (personnel || []).filter(p => p?.role === selectedRoleContext).forEach(p => {
+          if (!p?.id) return;
+          if (!yearlyScores[p.id]) yearlyScores[p.id] = { id: p.id, nama: p?.nama || 'Unknown', area: p?.area || 'Unknown', totalScore: 0, monthsActive: 0 };
+          
           const empWeekly = wData[p.id] || {}; const totalWeeklyAcc = {};
-          getActiveCategories(p.role).forEach(c => totalWeeklyAcc[c.key] = 0);
-          Object.values(empWeekly).forEach(weekData => { getActiveCategories(p.role).forEach(c => { totalWeeklyAcc[c.key] += (weekData[c.key] || 0); }); });
+          getActiveCategories(p.role).forEach(c => { if(c?.key) totalWeeklyAcc[c.key] = 0; });
+          
+          Object.values(empWeekly).forEach(weekData => { 
+            if (weekData && typeof weekData === 'object') {
+              getActiveCategories(p.role).forEach(c => { if(c?.key) totalWeeklyAcc[c.key] += (Number(weekData[c.key]) || 0); }); 
+            }
+          });
           const calc = calculateScore(totalWeeklyAcc, mData[p.id] || { kepatuhan: 75, pelanggaran: 0, keterangan: '' }, p.role);
           yearlyScores[p.id].totalScore += calc.sAkhir; yearlyScores[p.id].monthsActive += 1; 
         });
       }
       const finalRank = Object.values(yearlyScores).map(p => ({ ...p, averageScore: p.monthsActive > 0 ? (p.totalScore / p.monthsActive) : 0 })).filter(p => p.averageScore > 0);
-      finalRank.sort((a, b) => b.averageScore - a.averageScore);
+      finalRank.sort((a, b) => (Number(b.averageScore) || 0) - (Number(a.averageScore) || 0));
+      
       const areaBest = {}; safeAreas.forEach(area => { areaBest[area] = finalRank.filter(p => p.area === area)[0] || null; });
       setYearlyRecapData({ globalBest: finalRank[0] || null, areaBest });
     } catch (e) { console.error(e); } finally { setLoadingYearly(false); }
   };
 
   const getDefisitTarget = () => {
-    let defisit = []; let targetPersonnel = personnel.filter(p => p.role === selectedRoleContext);
-    if (!isManager) targetPersonnel = targetPersonnel.filter(p => p.id === currentUser.id);
+    let defisit = []; let targetPersonnel = (personnel || []).filter(p => p?.role === selectedRoleContext);
+    if (!isManager) targetPersonnel = targetPersonnel.filter(p => p?.id === currentUser?.id);
+    
     targetPersonnel.forEach(p => {
+      if (!p?.id) return;
       const acc = getAccumulatedData(p.id, p.role);
-      getActiveCategories(p.role).filter(c => c.isTargeted).forEach(c => {
-        const tercapai = acc[c.key] || 0;
-        if (tercapai < c.target) { defisit.push({ id: p.id + c.key, nama: p.nama, area: p.area, indikator: c.label, tercapai, target: c.target, kurang: c.target - tercapai }); }
+      getActiveCategories(p.role).filter(c => c?.isTargeted).forEach(c => {
+        const tercapai = Number(acc[c?.key]) || 0;
+        const targetNumber = Number(c?.target) || 0;
+        if (c?.target && tercapai < targetNumber) { 
+          defisit.push({ 
+            id: String(p.id) + String(c.key), 
+            nama: p?.nama || 'Unknown', 
+            area: p?.area || 'Unknown', 
+            indikator: c?.label || 'Unknown', 
+            tercapai: tercapai, 
+            target: targetNumber, 
+            kurang: targetNumber - tercapai 
+          }); 
+        }
       });
     });
-    return defisit.sort((a, b) => b.kurang - a.kurang);
+    return defisit.sort((a, b) => (Number(b.kurang) || 0) - (Number(a.kurang) || 0));
   };
 
+  // EXPORT EXCEL DENGAN STRUKTUR DUA BARIS & KOLOM FOTO
   const exportToExcel = (area, personnelList) => {
     const cats = getActiveCategories(selectedRoleContext);
-    let csvContent = "Area,Nama,"; cats.forEach(c => csvContent += `"${c.label}",`);
-    csvContent += "Kepatuhan,Pelanggaran,Skor Awal,Tambahan Poin,Penalti Kepatuhan,Skor Akhir,Nilai,Keterangan\n";
-    personnelList.forEach(p => {
-      const acc = getAccumulatedData(p.id, p.role);
-      const um = monthlyData[p.id] || { kepatuhan: 75, pelanggaran: 0, keterangan: '' };
+    const targetedCats = cats.filter(c => c.isTargeted);
+    const untargetedCats = cats.filter(c => !c.isTargeted);
+    
+    const roleName = safeRoles.find(r => r.id === selectedRoleContext)?.name?.toUpperCase() || selectedRoleContext.toUpperCase();
+
+    // Baris 1
+    let csvContent = `"${roleName}"\n`;
+
+    // Baris 2: Header Atas
+    let row2 = '"Area\n区域","Foto\n个人照片","Nama\n姓名",';
+    targetedCats.forEach(c => { row2 += `"${c.label}",,`; });
+    untargetedCats.forEach(c => { row2 += `"${c.label}",`; });
+    row2 += '"Kepatuhan\n遵守","Pelanggaran\n违反规定","Skor Akhir\n最终分数 (%)","Nilai\n分值","Keterangan\n备注"\n';
+    csvContent += row2;
+
+    // Baris 3: Sub-Header Target
+    let row3 = ',,,'; 
+    targetedCats.forEach(() => { row3 += '"Capaian\n成就","Target\n目标",'; });
+    untargetedCats.forEach(() => { row3 += ','; });
+    row3 += ',,,,\n'; 
+    csvContent += row3;
+
+    // Data Karyawan (Memasukkan URL Foto)
+    (personnelList || []).forEach(p => {
+      if (!p?.id) return;
+      const acc = getAccumulatedData(p.id, p.role); 
+      const um = monthlyData[p.id] || { kepatuhan: 75, pelanggaran: 0, keterangan: '' }; 
       const calc = calculateScore(acc, um, p.role);
-      let row = `"${p.area}","${p.nama}",`; cats.forEach(c => row += `"${acc[c.key]||0}",`);
-      row += `"${um.kepatuhan||75}","${um.pelanggaran||0}","${calc.sAwal.toFixed(1)}","${calc.tPoin}","${calc.penalti}","${calc.sAkhir.toFixed(1)}","${calc.grade}","${um.keterangan||''}"\n`;
+      
+      let row = `"${p?.area || ''}","${p?.foto || ''}", "${p?.nama || ''}",`; 
+      targetedCats.forEach(c => { row += `"${acc[c?.key]||0}","${c.target||0}",`; });
+      untargetedCats.forEach(c => { row += `"${acc[c?.key]||0}",`; });
+
+      row += `"${um.kepatuhan||75}","${um.pelanggaran||0}","${calc.sAkhir.toFixed(1)}","${calc.grade}","${um.keterangan||''}"\n`; 
       csvContent += row;
     });
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' }); const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob); link.download = `Laporan_KPI_${selectedRoleContext}_${area}_${selectedPeriod}.csv`; link.click();
+
+    const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8;' }); 
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob); 
+    link.download = `Laporan_KPI_${selectedRoleContext}_${area}_${selectedPeriod}.csv`; 
+    link.click();
   };
 
   const getVisibleAreas = () => {
     if (!currentUser) return [];
-    if (currentUser.role === 'Admin') return safeAreas;
-    return [currentUser.area || '']; 
+    if (currentUser?.role === 'Admin') return safeAreas;
+    return [currentUser?.area || '']; 
   };
   const getVisiblePersonnel = (area) => {
     if (!currentUser) return [];
-    let list = personnel.filter(p => p.role === selectedRoleContext && p.area === area);
-    if (!isManager) list = list.filter(p => p.id === currentUser.id); 
+    let list = (personnel || []).filter(p => p?.role === selectedRoleContext && p?.area === area);
+    if (!isManager) list = list.filter(p => p?.id === currentUser?.id); 
     return list;
   };
+  
   const handleDashboardSearchChange = (area, val) => { setDashboardSearch(prev => ({ ...prev, [area]: val })); };
-  const searchResult = personnel.filter(p => (p.nama || '').toLowerCase().includes(searchQuery.toLowerCase()));
-  const credSearchResult = personnel.filter(p => (p.nama || '').toLowerCase().includes(credSearchQuery.toLowerCase()));
+  const searchResult = (personnel || []).filter(p => String(p?.nama || '').toLowerCase().includes(String(searchQuery || '').toLowerCase()));
+  const credSearchResult = (personnel || []).filter(p => String(p?.nama || '').toLowerCase().includes(String(credSearchQuery || '').toLowerCase()));
 
 
   // =====================================================
-  // RENDER PRAMUAT & JENDELA LOGIN
+  // RENDER PRAMUAT & JENDELA LOGIN 
   // =====================================================
   if (!isDbReady || isCheckingSession) {
     return (
@@ -616,8 +633,8 @@ export default function App() {
             <div className="bg-emerald-500/10 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-3 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.2)]">
               <CheckCircle size={36} className="text-emerald-500" />
             </div>
-            <h2 className="text-xl font-black text-white tracking-tighter uppercase">Portal KPI HSE BUFN2</h2>
-            <p className="text-slate-500 text-xs mt-1">Sistem Evaluasi Kinerja</p>
+            <h2 className="text-xl font-black text-white tracking-tighter uppercase">KPI HSE Portal</h2>
+            <p className="text-slate-500 text-xs mt-1">Sistem Evaluasi BUFN 2</p>
           </div>
           
           <form onSubmit={handleLoginSubmit} className="space-y-4">
@@ -627,7 +644,7 @@ export default function App() {
                 <User size={18} className="absolute left-4 top-3.5 text-slate-500" />
                 <input 
                   type="text" 
-                  placeholder="Contoh: 8222222222" 
+                  placeholder="Contoh: SO-001" 
                   className="w-full bg-slate-800 border border-slate-700 p-3 pl-11 rounded-2xl text-white outline-none focus:border-emerald-500 transition-all font-mono text-sm shadow-inner"
                   value={loginForm.idKaryawan} 
                   onChange={e => setLoginForm({...loginForm, idKaryawan: e.target.value})}
@@ -659,7 +676,7 @@ export default function App() {
   }
 
   // =====================================================
-  // RENDER DASHBOARD CORE SYSTEM
+  // RENDER DASHBOARD CORE SYSTEM (AUTHENTICATED)
   // =====================================================
   return (
     <div className="min-h-[100dvh] bg-slate-50 text-slate-800 font-sans pb-12 relative overflow-hidden">
@@ -671,7 +688,6 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL EXIT APP */}
       {showExitModal && (
         <div className="fixed inset-0 bg-slate-900/80 flex items-center justify-center z-[200] p-4 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white rounded-3xl shadow-2xl max-w-xs w-full p-6 text-center border border-slate-200">
@@ -694,7 +710,7 @@ export default function App() {
             <CheckCircle size={36} className="text-emerald-300 drop-shadow-md" />
             <div>
               <h1 className="text-2xl font-black tracking-wide drop-shadow-sm">KPI HSE BUFN 2</h1>
-              <p className="text-emerald-200 text-xs mt-0.5 font-medium">User: <b className="uppercase tracking-wider">{currentUser.nama}</b> ({safeRoles.find(r=>r.id===currentUser.role)?.name || currentUser.role})</p>
+              <p className="text-emerald-200 text-xs mt-0.5 font-medium">User: <b className="uppercase tracking-wider">{currentUser?.nama || 'Unknown'}</b> ({safeRoles.find(r=>r?.id===currentUser?.role)?.name || currentUser?.role || 'Unknown'})</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -719,14 +735,14 @@ export default function App() {
         {/* TABS NAVIGATION */}
         <div className="flex overflow-x-auto whitespace-nowrap space-x-2 border-b border-slate-200 mb-6 pb-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
           <button onClick={() => handleTabClick('dashboard')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'dashboard' ? 'bg-white text-emerald-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}><LayoutDashboard size={16}/> Dashboard</button>
-          {currentUser.role === 'Admin' && (
+          {currentUser?.role === 'Admin' && (
             <>
               <button onClick={() => handleTabClick('database')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'database' ? 'bg-white text-emerald-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}><Database size={16}/> Karyawan</button>
               <button onClick={() => handleTabClick('input')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'input' ? 'bg-white text-emerald-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}><ClipboardPaste size={16}/> Input Nilai</button>
             </>
           )}
           <button onClick={() => handleTabClick('laporan')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'laporan' ? 'bg-white text-emerald-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:bg-slate-200'}`}><Table size={16}/> Laporan</button>
-          {currentUser.role === 'Admin' && (
+          {currentUser?.role === 'Admin' && (
             <button onClick={() => handleTabClick('pengaturan')} className={`px-4 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm ${activeTab === 'pengaturan' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:bg-slate-200'}`}><Settings size={16}/> Pengaturan</button>
           )}
         </div>
@@ -735,8 +751,8 @@ export default function App() {
           <div className="mb-4 bg-white p-4 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center gap-3 border border-slate-200">
             <span className="font-bold text-slate-700 text-sm">Tampilkan Data Untuk:</span>
             <div className="flex gap-2 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden">
-              {safeRoles.filter(r => r.id === 'SO' || r.id === 'WFSO').map(r => (
-                <button key={r.id} onClick={() => setSelectedRoleContext(r.id)} className={`px-4 py-1.5 rounded-lg font-bold transition-all whitespace-nowrap text-sm ${selectedRoleContext === r.id ? 'bg-emerald-100 text-emerald-800 shadow-sm border border-emerald-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{r.name}</button>
+              {(safeRoles || []).filter(r => r?.id === 'SO' || r?.id === 'WFSO').map(r => (
+                <button key={r?.id || Math.random()} onClick={() => setSelectedRoleContext(r?.id)} className={`px-4 py-1.5 rounded-lg font-bold transition-all whitespace-nowrap text-sm ${selectedRoleContext === r?.id ? 'bg-emerald-100 text-emerald-800 shadow-sm border border-emerald-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{r?.name || 'Unknown'}</button>
               ))}
             </div>
           </div>
@@ -746,20 +762,14 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
             
-            {/* BANNER TIMESTAMP TERAKHIR DIUPDATE */}
             <div className="bg-emerald-50 border border-emerald-200 px-4 py-3 rounded-2xl flex items-center gap-3 shadow-sm mb-4">
               <div className="bg-emerald-100 p-2.5 rounded-xl text-emerald-600"><Clock size={20}/></div>
               <div className="flex-1">
                 <p className="text-[10px] md:text-xs text-emerald-700 font-bold uppercase tracking-wider mb-0.5">Status Sinkronisasi Data</p>
                 <p className="text-sm md:text-base text-emerald-900 font-black">
-                  Last Update : {masterData.lastDataUpdate || 'Belum ada data'}
+                  Last Update : {masterData?.lastDataUpdate || 'Belum ada data'}
                 </p>
               </div>
-              {currentUser.role === 'Admin' && (
-                <button onClick={updateLastModified} className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] md:text-xs font-bold px-3 py-2 rounded-xl shadow-sm transition-all active:scale-95 whitespace-nowrap border border-emerald-700">
-                  Update Waktu
-                </button>
-              )}
             </div>
 
             {isManager && (
@@ -771,15 +781,15 @@ export default function App() {
 
             {dashboardMode === 'bulanan' && (
               <div className="grid grid-cols-1 gap-6">
-                {getVisibleAreas().map(area => {
-                  const defisitArea = getDefisitTarget().filter(d => d.area === area);
-                  const searchKey = dashboardSearch[area] || '';
-                  const finalDefisitList = defisitArea.filter(d => d.nama.toLowerCase().includes(searchKey.toLowerCase()));
+                {(getVisibleAreas() || []).map(area => {
+                  const defisitArea = (getDefisitTarget() || []).filter(d => d?.area === area);
+                  const searchKey = String(dashboardSearch[area] || '');
+                  const finalDefisitList = defisitArea.filter(d => String(d?.nama || '').toLowerCase().includes(searchKey.toLowerCase()));
 
                   return (
-                    <div key={area} className="bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-slate-200">
+                    <div key={area || Math.random()} className="bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-slate-200">
                       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4 mb-4">
-                        <h3 className="font-black text-lg text-slate-800 flex items-center gap-2"><TrendingDown className="text-red-500" size={20} /> {area}</h3>
+                        <h3 className="font-black text-lg text-slate-800 flex items-center gap-2"><TrendingDown className="text-red-500" size={20} /> {area || 'Unknown'}</h3>
                         {isManager && (
                           <div className="relative w-full md:w-auto"><Search size={14} className="absolute left-3 top-2.5 text-slate-400" /><input type="text" placeholder="Cari nama karyawan..." className="pl-9 pr-3 py-1.5 border border-slate-200 rounded-xl text-xs w-full md:w-56 bg-slate-50 focus:ring-emerald-500 focus:bg-white transition-all outline-none" value={searchKey} onChange={(e) => handleDashboardSearchChange(area, e.target.value)} /></div>
                         )}
@@ -795,8 +805,8 @@ export default function App() {
                               <tr><td colSpan="5" className="p-10 text-center text-slate-500 font-bold bg-slate-50 border-dashed">🎉 Luar biasa! Target bulan ini sudah terpenuhi semua.</td></tr>
                             ) : (
                               finalDefisitList.map((item) => (
-                                <tr key={item.id} className="border-b border-slate-100 hover:bg-slate-50">
-                                  <td className="p-3.5 font-bold text-slate-700">{item.nama}</td><td className="p-3.5 font-medium text-slate-600">{item.indikator}</td><td className="p-3.5 text-center">{item.tercapai}</td><td className="p-3.5 text-center">{item.target}</td><td className="p-3.5 text-center font-black text-red-600 bg-red-50/40"> - {item.kurang}</td>
+                                <tr key={item?.id || Math.random()} className="border-b border-slate-100 hover:bg-slate-50">
+                                  <td className="p-3.5 font-bold text-slate-700">{item?.nama || '-'}</td><td className="p-3.5 font-medium text-slate-600">{item?.indikator || '-'}</td><td className="p-3.5 text-center">{item?.tercapai || 0}</td><td className="p-3.5 text-center">{item?.target || 0}</td><td className="p-3.5 text-center font-black text-red-600 bg-red-50/40"> - {item?.kurang || 0}</td>
                                 </tr>
                               ))
                             )}
@@ -815,38 +825,38 @@ export default function App() {
                   <div className="p-12 text-center bg-white rounded-3xl border border-slate-200 font-semibold text-slate-500 animate-pulse">Mengkalkulasi Rata-rata Nilai 12 Bulan...</div>
                 ) : (
                   <>
-                    {yearlyRecapData.globalBest && currentUser.role === 'Admin' && (
+                    {yearlyRecapData?.globalBest && currentUser?.role === 'Admin' && (
                       <div className="bg-gradient-to-br from-amber-500 to-yellow-600 p-6 md:p-8 rounded-3xl shadow-xl text-white flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
                         <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl mix-blend-overlay"></div>
                         <div className="flex flex-col md:flex-row items-center md:items-start gap-4 text-center md:text-left relative z-10">
                           <div className="bg-white/20 p-5 rounded-full shadow-inner border border-white/20"><Award size={48} className="text-yellow-100 animate-pulse"/></div>
                           <div>
                             <span className="bg-amber-900/60 text-white text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest border border-amber-800/30">Karyawan Terbaik Global</span>
-                            <h3 className="text-2xl font-black mt-3 tracking-wide shadow-sm">{yearlyRecapData.globalBest.nama}</h3>
-                            <p className="text-amber-100 text-xs mt-1.5 font-medium">Penempatan: <b>{yearlyRecapData.globalBest.area}</b> | Jabatan: <b>{safeRoles.find(r=>r.id===selectedRoleContext)?.name}</b></p>
+                            <h3 className="text-2xl font-black mt-3 tracking-wide shadow-sm">{yearlyRecapData?.globalBest?.nama || 'Unknown'}</h3>
+                            <p className="text-amber-100 text-xs mt-1.5 font-medium">Penempatan: <b>{yearlyRecapData?.globalBest?.area || 'Unknown'}</b> | Jabatan: <b>{safeRoles.find(r=>r?.id===selectedRoleContext)?.name || 'Unknown'}</b></p>
                           </div>
                         </div>
                         <div className="bg-white/10 px-6 py-4 rounded-2xl border border-white/20 text-center shadow-inner w-full md:w-auto relative z-10 backdrop-blur-sm">
                           <p className="text-[10px] text-amber-100 font-bold uppercase tracking-wider">Rata-rata Nilai</p>
-                          <p className="text-4xl font-black mt-1 drop-shadow-md">{yearlyRecapData.globalBest.averageScore.toFixed(1)}</p>
+                          <p className="text-4xl font-black mt-1 drop-shadow-md">{(Number(yearlyRecapData?.globalBest?.averageScore) || 0).toFixed(1)}</p>
                         </div>
                       </div>
                     )}
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-                      {getVisibleAreas().map(area => {
-                        const winner = yearlyRecapData.areaBest[area];
+                      {(getVisibleAreas() || []).map(area => {
+                        const winner = yearlyRecapData?.areaBest?.[area];
                         return (
-                          <div key={area} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col justify-between gap-4">
+                          <div key={area || Math.random()} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col justify-between gap-4">
                             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                              <h4 className="font-bold text-slate-800 text-sm tracking-wide">{area}</h4>
+                              <h4 className="font-bold text-slate-800 text-sm tracking-wide">{area || 'Unknown'}</h4>
                               <Medal size={20} className={winner ? "text-slate-300" : "text-slate-200"} />
                             </div>
                             {winner ? (
                               <div className="pt-2">
                                 <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-1.5"><UserCheck size={12}/> Juara 1 Area</p>
-                                <p className="text-xl font-black text-slate-800 mt-1.5">{winner.nama}</p>
-                                <p className="text-xs text-slate-600 font-bold mt-4 bg-slate-100 px-3 py-2 rounded-xl w-fit border border-slate-200 shadow-inner">Skor Akhir: <span className="text-emerald-700 font-black">{winner.averageScore.toFixed(1)}</span></p>
+                                <p className="text-xl font-black text-slate-800 mt-1.5">{winner?.nama || 'Unknown'}</p>
+                                <p className="text-xs text-slate-600 font-bold mt-4 bg-slate-100 px-3 py-2 rounded-xl w-fit border border-slate-200 shadow-inner">Skor Akhir: <span className="text-emerald-700 font-black">{(Number(winner?.averageScore) || 0).toFixed(1)}</span></p>
                               </div>
                             ) : (
                               <p className="text-xs text-slate-400 italic py-8 text-center bg-slate-50 rounded-xl mt-2 border border-dashed border-slate-200">Belum ada rekam capaian.</p>
@@ -863,15 +873,22 @@ export default function App() {
         )}
 
         {/* --- TAB DATABASE KARYAWAN (ADMIN ONLY) --- */}
-        {activeTab === 'database' && currentUser.role === 'Admin' && (
+        {activeTab === 'database' && currentUser?.role === 'Admin' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-slate-200 lg:col-span-1 h-fit">
               <h2 className="text-lg font-black mb-5 pb-3 border-b border-slate-100 text-slate-800">Tambah Karyawan Baru</h2>
               <form onSubmit={handleAddPersonnel} className="space-y-4">
                 <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Nama Lengkap</label><input type="text" required className="w-full border border-slate-300 p-3 rounded-xl focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-sm shadow-sm" value={newEmp.nama} onChange={e => setNewEmp({...newEmp, nama: e.target.value})} /></div>
+                
+                {/* INPUT URL FOTO */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide flex items-center gap-1"><ImageIcon size={14}/> URL Foto (Opsional)</label>
+                  <input type="text" placeholder="Masukkan Link/URL gambar" className="w-full border border-slate-300 p-3 rounded-xl focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-sm shadow-sm" value={newEmp.foto} onChange={e => setNewEmp({...newEmp, foto: e.target.value})} />
+                </div>
+
                 <div className="grid grid-cols-2 gap-3">
-                  <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Smelter</label><select className="w-full border border-slate-300 p-3 rounded-xl focus:ring-emerald-500 text-sm bg-white shadow-sm outline-none" value={newEmp.area} onChange={e => setNewEmp({...newEmp, area: e.target.value})}>{safeAreas.map(a => <option key={a} value={a}>{a}</option>)}</select></div>
-                  <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Jabatan</label><select className="w-full border border-slate-300 p-3 rounded-xl focus:ring-emerald-500 text-sm bg-white shadow-sm outline-none" value={newEmp.role} onChange={e => setNewEmp({...newEmp, role: e.target.value})}>{safeRoles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></div>
+                  <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Smelter</label><select className="w-full border border-slate-300 p-3 rounded-xl focus:ring-emerald-500 text-sm bg-white shadow-sm outline-none" value={newEmp.area} onChange={e => setNewEmp({...newEmp, area: e.target.value})}>{(safeAreas || []).map(a => <option key={a || Math.random()} value={a}>{a}</option>)}</select></div>
+                  <div><label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wide">Jabatan</label><select className="w-full border border-slate-300 p-3 rounded-xl focus:ring-emerald-500 text-sm bg-white shadow-sm outline-none" value={newEmp.role} onChange={e => setNewEmp({...newEmp, role: e.target.value})}>{(safeRoles || []).map(r => <option key={r?.id || Math.random()} value={r?.id}>{r?.name}</option>)}</select></div>
                 </div>
                 <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 transition-colors text-white font-black py-3.5 rounded-xl shadow-lg shadow-emerald-900/20 text-sm mt-4 tracking-wide">SIMPAN DATA</button>
               </form>
@@ -884,28 +901,38 @@ export default function App() {
               </div>
               <div className="overflow-x-auto border border-slate-200 rounded-2xl shadow-inner max-h-[500px]">
                 <table className="w-full text-left text-sm whitespace-nowrap">
-                  <thead className="bg-slate-100 text-slate-600 sticky top-0 z-10"><tr><th className="p-4 font-bold">Nama Lengkap</th><th className="p-4 text-center font-bold">Smelter</th><th className="p-4 text-center font-bold">Jabatan Aktif</th><th className="p-4 text-center font-bold">Aksi</th></tr></thead>
+                  <thead className="bg-slate-100 text-slate-600 sticky top-0 z-10"><tr><th className="p-4 font-bold">Foto</th><th className="p-4 font-bold">Nama Lengkap</th><th className="p-4 text-center font-bold">Smelter</th><th className="p-4 text-center font-bold">Jabatan Aktif</th><th className="p-4 text-center font-bold">Aksi</th></tr></thead>
                   <tbody>
-                    {searchResult.length === 0 ? (
-                      <tr><td colSpan="4" className="text-center p-10 text-slate-500 border-dashed bg-slate-50 font-medium">Karyawan tidak ditemukan.</td></tr>
+                    {(searchResult || []).length === 0 ? (
+                      <tr><td colSpan="5" className="text-center p-10 text-slate-500 border-dashed bg-slate-50 font-medium">Karyawan tidak ditemukan.</td></tr>
                     ) : (
                       searchResult.map(p => {
-                        const isAreaUnknown = !safeAreas.includes(p.area);
+                        const isAreaUnknown = !safeAreas.includes(p?.area);
                         return (
-                        <tr key={p.id} className={`border-b border-slate-100 hover:bg-slate-50 transition-colors ${isAreaUnknown ? 'bg-red-50/50' : ''}`}>
-                          {editingId === p.id ? (
+                        <tr key={p?.id || Math.random()} className={`border-b border-slate-100 hover:bg-slate-50 transition-colors ${isAreaUnknown ? 'bg-red-50/50' : ''}`}>
+                          {editingId === p?.id ? (
                             <>
-                              <td className="p-2"><input type="text" className="border border-slate-300 p-2 w-full text-sm rounded-lg focus:ring-emerald-500 outline-none" value={editFormData.nama} onChange={(e) => setEditFormData({...editFormData, nama: e.target.value})} /></td>
-                              <td className="p-2 text-center"><select className="border border-slate-300 p-2 text-sm rounded-lg focus:ring-emerald-500 bg-white outline-none" value={editFormData.area} onChange={(e) => setEditFormData({...editFormData, area: e.target.value})}>{safeAreas.map(a => <option key={a} value={a}>{a}</option>)}</select></td>
-                              <td className="p-2 text-center"><select className="border border-slate-300 p-2 text-sm rounded-lg focus:ring-emerald-500 bg-white outline-none" value={editFormData.role} onChange={(e) => setEditFormData({...editFormData, role: e.target.value})}>{safeRoles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></td>
+                              <td className="p-2 text-center" colSpan="2">
+                                <input type="text" placeholder="URL Foto" className="border border-slate-300 p-2 w-full text-xs rounded-lg focus:ring-emerald-500 outline-none mb-1" value={editFormData.foto} onChange={(e) => setEditFormData({...editFormData, foto: e.target.value})} />
+                                <input type="text" placeholder="Nama" className="border border-slate-300 p-2 w-full text-sm rounded-lg focus:ring-emerald-500 outline-none" value={editFormData.nama} onChange={(e) => setEditFormData({...editFormData, nama: e.target.value})} />
+                              </td>
+                              <td className="p-2 text-center"><select className="border border-slate-300 p-2 text-sm rounded-lg focus:ring-emerald-500 bg-white outline-none" value={editFormData.area} onChange={(e) => setEditFormData({...editFormData, area: e.target.value})}>{(safeAreas || []).map(a => <option key={a || Math.random()} value={a}>{a}</option>)}</select></td>
+                              <td className="p-2 text-center"><select className="border border-slate-300 p-2 text-sm rounded-lg focus:ring-emerald-500 bg-white outline-none" value={editFormData.role} onChange={(e) => setEditFormData({...editFormData, role: e.target.value})}>{(safeRoles || []).map(r => <option key={r?.id || Math.random()} value={r?.id}>{r?.name}</option>)}</select></td>
                               <td className="p-2 text-center space-x-2"><button onClick={handleSaveEdit} className="text-white bg-emerald-600 px-4 py-2 rounded-lg font-bold text-xs shadow-md">Simpan</button><button onClick={() => setEditingId(null)} className="bg-slate-200 px-4 py-2 rounded-lg font-bold text-xs text-slate-700">Batal</button></td>
                             </>
                           ) : (
                             <>
-                              <td className="p-4 font-bold text-slate-700">{p.nama}</td>
-                              <td className="p-4 text-center font-bold text-slate-500">{p.area} {isAreaUnknown && <span className="text-red-500 text-[10px] block mt-1">(Perlu Diupdate)</span>}</td>
-                              <td className="p-4 text-center"><span className="px-3 py-1 bg-slate-200/80 rounded-lg text-xs font-bold text-slate-600 border border-slate-300">{safeRoles.find(r=>r.id===p.role)?.name || p.role}</span></td>
-                              <td className="p-4 text-center space-x-3"><button onClick={() => handleEditClick(p)} className="text-blue-600 hover:text-blue-800 bg-blue-50 p-2 rounded-lg transition-colors"><Edit size={16}/></button><button onClick={() => setDeleteModal({ show: true, id: p.id, nama: p.nama })} className="text-red-600 hover:text-red-800 bg-red-50 p-2 rounded-lg transition-colors"><Trash2 size={16}/></button></td>
+                              <td className="p-4 text-center">
+                                {p?.foto ? (
+                                  <img src={p.foto} alt="foto" className="w-10 h-10 rounded-full object-cover border-2 border-slate-200" onError={(e)=>{e.target.style.display='none'}} />
+                                ) : (
+                                  <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-400 mx-auto"><User size={20}/></div>
+                                )}
+                              </td>
+                              <td className="p-4 font-bold text-slate-700">{p?.nama || '-'}</td>
+                              <td className="p-4 text-center font-bold text-slate-500">{p?.area || '-'} {isAreaUnknown && <span className="text-red-500 text-[10px] block mt-1">(Perlu Diupdate)</span>}</td>
+                              <td className="p-4 text-center"><span className="px-3 py-1 bg-slate-200/80 rounded-lg text-xs font-bold text-slate-600 border border-slate-300">{safeRoles.find(r=>r?.id===p?.role)?.name || p?.role || '-'}</span></td>
+                              <td className="p-4 text-center space-x-3"><button onClick={() => handleEditClick(p)} className="text-blue-600 hover:text-blue-800 bg-blue-50 p-2 rounded-lg transition-colors"><Edit size={16}/></button><button onClick={() => setDeleteModal({ show: true, id: p?.id, nama: p?.nama })} className="text-red-600 hover:text-red-800 bg-red-50 p-2 rounded-lg transition-colors"><Trash2 size={16}/></button></td>
                             </>
                           )}
                         </tr>
@@ -919,15 +946,15 @@ export default function App() {
         )}
 
         {/* --- TAB INPUT NILAI KINERJA (ADMIN ONLY) --- */}
-        {activeTab === 'input' && currentUser.role === 'Admin' && (
+        {activeTab === 'input' && currentUser?.role === 'Admin' && (
           <div className="bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-slate-200">
              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
                 <div className="bg-slate-50 p-5 md:p-6 rounded-3xl border border-slate-200 h-fit shadow-inner">
                   <h2 className="font-black text-lg mb-5 border-b border-slate-200 pb-3 text-slate-800">Data Excel Generator</h2>
                   <div className="grid grid-cols-2 gap-3 mb-5">
-                    <select className="border border-slate-300 p-3 w-full rounded-xl focus:ring-emerald-500 focus:border-emerald-500 text-sm bg-white outline-none shadow-sm font-bold text-slate-700" value={selectedWeek} onChange={(e) => setSelectedWeek(e.target.value)}>{weeks.map(w => <option key={w.id} value={w.id}>{w.label}</option>)}</select>
+                    <select className="border border-slate-300 p-3 w-full rounded-xl focus:ring-emerald-500 focus:border-emerald-500 text-sm bg-white outline-none shadow-sm font-bold text-slate-700" value={selectedWeek} onChange={(e) => setSelectedWeek(e.target.value)}>{(weeks || []).map(w => <option key={w?.id || Math.random()} value={w?.id}>{w?.label}</option>)}</select>
                     <select className="border border-slate-300 p-3 w-full rounded-xl focus:ring-emerald-500 focus:border-emerald-500 text-sm bg-white outline-none shadow-sm font-bold text-slate-700" value={selectedIndicator} onChange={(e) => setSelectedIndicator(e.target.value)}>
-                      {getAllUniqueCategories().map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
+                      {(getAllUniqueCategories() || []).map(c => <option key={c?.key || Math.random()} value={c?.key}>{c?.label}</option>)}
                     </select>
                   </div>
                   <div className="bg-blue-50 border border-blue-200 text-blue-800 rounded-xl p-4 text-xs mb-5 leading-relaxed shadow-sm">
@@ -937,23 +964,23 @@ export default function App() {
                   <button onClick={handleProcessPaste} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black tracking-widest py-4 mt-5 rounded-xl shadow-lg shadow-emerald-900/20 transition-all active:scale-[0.98] text-sm">PROSES DATA</button>
                 </div>
                 <div>
-                  <h2 className="font-black text-lg mb-5 text-slate-800 border-b border-slate-200 pb-3">Tinjauan Capaian ({safeRoles.find(r=>r.id===selectedRoleContext)?.name})</h2>
-                  {getVisibleAreas().map(area => {
+                  <h2 className="font-black text-lg mb-5 text-slate-800 border-b border-slate-200 pb-3">Tinjauan Capaian ({safeRoles.find(r=>r?.id===selectedRoleContext)?.name || 'Unknown'})</h2>
+                  {(getVisibleAreas() || []).map(area => {
                     const areaPersonnel = getVisiblePersonnel(area);
                     if (areaPersonnel.length === 0) return null;
 
                     return (
-                      <div key={area} className="mb-6">
-                        <div className="px-4 py-2.5 rounded-t-xl font-bold text-sm bg-slate-700 text-white shadow-sm">{area}</div>
+                      <div key={area || Math.random()} className="mb-6">
+                        <div className="px-4 py-2.5 rounded-t-xl font-bold text-sm bg-slate-700 text-white shadow-sm">{area || 'Unknown'}</div>
                         <div className="overflow-x-auto border border-slate-200 border-t-0 rounded-b-xl shadow-inner bg-white max-h-[400px]">
-                          <table className="w-full text-xs whitespace-nowrap"><thead className="bg-slate-100 border-b border-slate-200 sticky top-0"><tr><th className="p-3 text-left text-slate-600 font-bold">Nama Karyawan</th>{getActiveCategories(selectedRoleContext).map(c => <th key={c.key} className="p-3 text-center text-slate-600 font-bold">{c.label}</th>)}</tr></thead>
+                          <table className="w-full text-xs whitespace-nowrap"><thead className="bg-slate-100 border-b border-slate-200 sticky top-0"><tr><th className="p-3 text-left text-slate-600 font-bold">Nama Karyawan</th>{(getActiveCategories(selectedRoleContext) || []).map(c => <th key={c?.key || Math.random()} className="p-3 text-center text-slate-600 font-bold">{c?.label || '-'}</th>)}</tr></thead>
                             <tbody>{areaPersonnel.map(p => {
-                              const wData = weeklyData[p.id]?.[selectedWeek] || {};
+                              const wData = weeklyData[p?.id]?.[selectedWeek] || {};
                               return (
-                                <tr key={p.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50 transition-colors">
-                                  <td className="p-3 font-bold text-slate-700">{p.nama}</td>
-                                  {getActiveCategories(selectedRoleContext).map(c => (
-                                    <td key={c.key} className="p-3 text-center text-emerald-700 font-black bg-emerald-50/30">{wData[c.key] !== undefined ? wData[c.key] : 0}</td>
+                                <tr key={p?.id || Math.random()} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50 transition-colors">
+                                  <td className="p-3 font-bold text-slate-700">{p?.nama || '-'}</td>
+                                  {(getActiveCategories(selectedRoleContext) || []).map(c => (
+                                    <td key={c?.key || Math.random()} className="p-3 text-center text-emerald-700 font-black bg-emerald-50/30">{wData[c?.key] !== undefined ? wData[c.key] : 0}</td>
                                   ))}
                                 </tr>
                               )
@@ -980,14 +1007,14 @@ export default function App() {
                </div>
              </div>
              
-             {getVisibleAreas().map(area => {
+             {(getVisibleAreas() || []).map(area => {
                 const areaPersonnel = getVisiblePersonnel(area);
                 if (areaPersonnel.length === 0) return null;
                 
                 return (
-                  <div key={area} className="mb-10 overflow-x-auto shadow-md rounded-2xl border border-slate-300">
+                  <div key={area || Math.random()} className="mb-10 overflow-x-auto shadow-md rounded-2xl border border-slate-300">
                     <div className="flex justify-between items-center text-white px-4 md:px-5 py-4 rounded-t-2xl bg-slate-800 border-b border-slate-900">
-                      <h3 className="font-black text-sm md:text-base flex items-center gap-2 tracking-wide"><Table size={18} className="text-emerald-400" /> AREA {area.toUpperCase()}</h3>
+                      <h3 className="font-black text-sm md:text-base flex items-center gap-2 tracking-wide"><Table size={18} className="text-emerald-400" /> AREA {String(area || '').toUpperCase()}</h3>
                       <button onClick={() => exportToExcel(area, areaPersonnel)} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-lg flex items-center gap-2 shadow-sm transition-all active:scale-95"><Download size={14} /> Export Excel</button>
                     </div>
                     <div className="overflow-x-auto bg-white">
@@ -995,12 +1022,13 @@ export default function App() {
                         <thead className="bg-slate-700 text-white">
                           <tr>
                             <th className="p-4 text-left font-bold tracking-wide">Profil Pegawai</th>
-                            {getActiveCategories(selectedRoleContext).map(c => <th key={c.key} className="p-3 border-l border-slate-600 text-center font-medium">{c.label}</th>)}
+                            {(getActiveCategories(selectedRoleContext) || []).map(c => <th key={c?.key || Math.random()} className="p-3 border-l border-slate-600 text-center font-medium">{c?.label || '-'}</th>)}
                             <th className="p-3 bg-emerald-900/80 border-l border-emerald-800 text-center font-medium">Kepatuhan</th><th className="p-3 bg-slate-800 border-l border-slate-700 text-center font-medium">Pelanggaran</th><th className="p-3 bg-slate-800 border-l border-slate-700 text-center font-medium">Skor Awal</th><th className="p-3 bg-slate-800 text-center font-medium">Extra Poin</th><th className="p-3 bg-slate-800 text-center font-medium">Penalti</th><th className="p-3 bg-emerald-800 border-l border-emerald-700 text-center font-bold tracking-wider">SKOR AKHIR</th><th className="p-3 bg-emerald-700 border-l border-emerald-600 text-center font-bold tracking-wider">NILAI KASTA</th><th className="p-3 bg-slate-800 text-center border-l border-slate-700">Catatan Khusus</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {areaPersonnel.map(p => {
+                          {(areaPersonnel || []).map(p => {
+                            if (!p?.id) return null;
                             const acc = getAccumulatedData(p.id, p.role);
                             const um = monthlyData[p.id] || { kepatuhan: 75, pelanggaran: 0, keterangan: '' };
                             const calc = calculateScore(acc, um, p.role);
@@ -1008,26 +1036,31 @@ export default function App() {
                             return (
                               <tr key={p.id} className="border-b border-slate-200 hover:bg-slate-50 transition-colors">
                                 <td className="p-4">
-                                  <span className="font-bold text-slate-800 text-sm block mb-1">{p.nama}</span> 
-                                  <span className="bg-slate-200 text-slate-600 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider">{p.area}</span>
+                                  <div className="flex items-center gap-3">
+                                    {p?.foto ? <img src={p.foto} alt="foto" className="w-8 h-8 rounded-full object-cover bg-slate-200 border border-slate-300" onError={(e)=>{e.target.style.display='none'}}/> : <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-400"><User size={16}/></div>}
+                                    <div>
+                                      <span className="font-bold text-slate-800 text-sm block mb-1">{p?.nama || '-'}</span> 
+                                      <span className="bg-slate-200 text-slate-600 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider">{p?.area || '-'}</span>
+                                    </div>
+                                  </div>
                                 </td>
-                                {getActiveCategories(selectedRoleContext).map(c => <td key={c.key} className="p-3 text-center border-l border-slate-200 font-bold text-slate-600">{acc[c.key]||0}</td>)}
+                                {(getActiveCategories(selectedRoleContext) || []).map(c => <td key={c?.key || Math.random()} className="p-3 text-center border-l border-slate-200 font-bold text-slate-600">{acc[c?.key]||0}</td>)}
                                 
                                 <td className="p-2 text-center border-l border-slate-200 bg-emerald-50/50">
-                                  <select disabled={currentUser.role !== 'Admin'} className="border border-emerald-200 p-2 rounded-lg w-16 focus:ring-emerald-500 text-center bg-white font-black text-emerald-800 shadow-inner outline-none cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed" value={um.kepatuhan || 75} onChange={e=>handleMonthlyInput(p.id, 'kepatuhan', e.target.value)}><option value="25">25</option><option value="50">50</option><option value="75">75</option></select>
+                                  <select disabled={currentUser?.role !== 'Admin'} className="border border-emerald-200 p-2 rounded-lg w-16 focus:ring-emerald-500 text-center bg-white font-black text-emerald-800 shadow-inner outline-none cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed" value={um?.kepatuhan || 75} onChange={e=>handleMonthlyInput(p.id, 'kepatuhan', e.target.value)}><option value="25">25</option><option value="50">50</option><option value="75">75</option></select>
                                 </td>
                                 <td className="p-2 text-center bg-red-50/50 border-l border-slate-200">
-                                  <input type="number" disabled={currentUser.role !== 'Admin'} className="w-16 border border-red-200 p-2 rounded-lg text-center focus:ring-red-500 bg-white font-black text-red-800 shadow-inner outline-none disabled:opacity-70 disabled:cursor-not-allowed" value={um.pelanggaran || 0} onChange={e=>handleMonthlyInput(p.id, 'pelanggaran', e.target.value)}/>
+                                  <input type="number" disabled={currentUser?.role !== 'Admin'} className="w-16 border border-red-200 p-2 rounded-lg text-center focus:ring-red-500 bg-white font-black text-red-800 shadow-inner outline-none disabled:opacity-70 disabled:cursor-not-allowed" value={um?.pelanggaran || 0} onChange={e=>handleMonthlyInput(p.id, 'pelanggaran', e.target.value)}/>
                                 </td>
                                 
-                                <td className="p-3 text-center border-l border-slate-200 bg-slate-50 font-bold text-slate-700">{calc.sAwal.toFixed(1)}</td>
-                                <td className="p-3 text-center bg-slate-50 font-black text-emerald-600">+{calc.tPoin}</td>
-                                <td className="p-3 text-center font-black text-red-600 bg-red-50/30">{calc.penalti}</td>
-                                <td className="p-3 text-center font-black text-lg text-emerald-900 bg-emerald-100/50 border-l border-emerald-200">{calc.sAkhir.toFixed(1)}</td>
-                                <td className="p-3 text-center border-l border-emerald-200 bg-emerald-50/50"><span className={`px-4 py-2 rounded-lg text-white font-black tracking-widest shadow-sm text-sm border ${calc.grade==='A'?'bg-green-500 border-green-600':calc.grade==='B'?'bg-lime-500 border-lime-600':calc.grade==='C'?'bg-yellow-500 border-yellow-600':'bg-red-500 border-red-600'}`}>{calc.grade}</span></td>
+                                <td className="p-3 text-center border-l border-slate-200 bg-slate-50 font-bold text-slate-700">{(Number(calc?.sAwal) || 0).toFixed(1)}</td>
+                                <td className="p-3 text-center bg-slate-50 font-black text-emerald-600">+{(Number(calc?.tPoin) || 0)}</td>
+                                <td className="p-3 text-center font-black text-red-600 bg-red-50/30">{(Number(calc?.penalti) || 0)}</td>
+                                <td className="p-3 text-center font-black text-lg text-emerald-900 bg-emerald-100/50 border-l border-emerald-200">{(Number(calc?.sAkhir) || 0).toFixed(1)}</td>
+                                <td className="p-3 text-center border-l border-emerald-200 bg-emerald-50/50"><span className={`px-4 py-2 rounded-lg text-white font-black tracking-widest shadow-sm text-sm border ${calc?.grade==='A'?'bg-green-500 border-green-600':calc?.grade==='B'?'bg-lime-500 border-lime-600':calc?.grade==='C'?'bg-yellow-500 border-yellow-600':'bg-red-500 border-red-600'}`}>{calc?.grade || 'D'}</span></td>
                                 
                                 <td className="p-2 bg-slate-50 border-l border-slate-200">
-                                  <input type="text" disabled={currentUser.role !== 'Admin'} className="w-28 md:w-36 border border-slate-300 p-2 text-xs rounded-lg focus:ring-emerald-500 bg-white placeholder-slate-400 outline-none shadow-inner disabled:opacity-70 disabled:cursor-not-allowed" placeholder="Misal: Cuti" value={um.keterangan || ''} onChange={e=>handleMonthlyInput(p.id, 'keterangan', e.target.value)}/>
+                                  <input type="text" disabled={currentUser?.role !== 'Admin'} className="w-28 md:w-36 border border-slate-300 p-2 text-xs rounded-lg focus:ring-emerald-500 bg-white placeholder-slate-400 outline-none shadow-inner disabled:opacity-70 disabled:cursor-not-allowed" placeholder="Misal: Cuti" value={um?.keterangan || ''} onChange={e=>handleMonthlyInput(p.id, 'keterangan', e.target.value)}/>
                                 </td>
                               </tr>
                             )
@@ -1042,7 +1075,7 @@ export default function App() {
         )}
 
         {/* --- TAB PENGATURAN SUB-TABS (ONLY ADMIN) --- */}
-        {activeTab === 'pengaturan' && currentUser.role === 'Admin' && (
+        {activeTab === 'pengaturan' && currentUser?.role === 'Admin' && (
           <div className="bg-slate-800 p-5 md:p-8 rounded-3xl shadow-2xl border border-slate-700 text-slate-200">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
               <div>
@@ -1077,16 +1110,16 @@ export default function App() {
                       <tr><th className="p-4 border-b border-slate-700 font-bold">Profil Pegawai</th><th className="p-4 border-b border-slate-700 text-center font-bold">ID (Username)</th><th className="p-4 border-b border-slate-700 text-center font-bold">Password Sistem</th><th className="p-4 border-b border-slate-700 text-center font-bold">Tindakan Keamanan</th></tr>
                     </thead>
                     <tbody>
-                      {credSearchResult.length === 0 ? (
+                      {(credSearchResult || []).length === 0 ? (
                         <tr><td colSpan="4" className="p-12 text-center text-slate-500 italic">Data profil tidak ditemukan di server.</td></tr>
                       ) : (
                         credSearchResult.map(p => (
-                          <tr key={p.id} className="border-b border-slate-700/50 hover:bg-slate-700/40 transition-colors">
+                          <tr key={p?.id || Math.random()} className="border-b border-slate-700/50 hover:bg-slate-700/40 transition-colors">
                             <td className="p-4">
-                              <span className="font-bold text-white text-base block">{p.nama}</span> 
-                              <span className="inline-block mt-1.5 text-[9px] font-bold px-2 py-0.5 rounded bg-slate-700 text-emerald-400 uppercase tracking-widest border border-slate-600">{p.area} • {safeRoles.find(r=>r.id===p.role)?.name || p.role}</span>
+                              <span className="font-bold text-white text-base block">{p?.nama || '-'}</span> 
+                              <span className="inline-block mt-1.5 text-[9px] font-bold px-2 py-0.5 rounded bg-slate-700 text-emerald-400 uppercase tracking-widest border border-slate-600">{p?.area || '-'} • {safeRoles.find(r=>r?.id===p?.role)?.name || p?.role || '-'}</span>
                             </td>
-                            {editingCredId === p.id ? (
+                            {editingCredId === p?.id ? (
                               <>
                                 <td className="p-3 align-middle"><div className="flex justify-center"><input type="text" placeholder="Ketik Username Baru" className="bg-slate-950 border border-emerald-500/50 rounded-xl p-3 w-full md:w-4/5 text-white text-sm font-mono focus:ring-emerald-500 outline-none text-center shadow-inner" value={credFormData.idKaryawan} onChange={(e) => setCredFormData({...credFormData, idKaryawan: e.target.value})} /></div></td>
                                 <td className="p-3 align-middle"><div className="flex justify-center"><input type="text" placeholder="Ketik Password Baru" className="bg-slate-950 border border-emerald-500/50 rounded-xl p-3 w-full md:w-4/5 text-white text-sm focus:ring-emerald-500 outline-none text-center shadow-inner" value={credFormData.password} onChange={(e) => setCredFormData({...credFormData, password: e.target.value})} /></div></td>
@@ -1094,8 +1127,8 @@ export default function App() {
                               </>
                             ) : (
                               <>
-                                <td className="p-4 text-center align-middle">{p.idKaryawan ? <span className="text-emerald-300 font-mono tracking-wider bg-emerald-900/30 px-3.5 py-2 rounded-lg border border-emerald-800/50 select-all shadow-inner">{p.idKaryawan}</span> : <span className="text-slate-500 italic text-xs bg-slate-800 px-3 py-1.5 rounded-full border border-slate-700">Belum di-set</span>}</td>
-                                <td className="p-4 text-center align-middle">{p.password ? <span className="text-slate-300 font-mono bg-slate-900/50 px-3.5 py-2 rounded-lg border border-slate-700 select-all shadow-inner">{p.password}</span> : <span className="text-slate-500 italic text-xs bg-slate-800 px-3 py-1.5 rounded-full border border-slate-700">Belum di-set</span>}</td>
+                                <td className="p-4 text-center align-middle">{p?.idKaryawan ? <span className="text-emerald-300 font-mono tracking-wider bg-emerald-900/30 px-3.5 py-2 rounded-lg border border-emerald-800/50 select-all shadow-inner">{p.idKaryawan}</span> : <span className="text-slate-500 italic text-xs bg-slate-800 px-3 py-1.5 rounded-full border border-slate-700">Belum di-set</span>}</td>
+                                <td className="p-4 text-center align-middle">{p?.password ? <span className="text-slate-300 font-mono bg-slate-900/50 px-3.5 py-2 rounded-lg border border-slate-700 select-all shadow-inner">{p.password}</span> : <span className="text-slate-500 italic text-xs bg-slate-800 px-3 py-1.5 rounded-full border border-slate-700">Belum di-set</span>}</td>
                                 <td className="p-4 text-center align-middle"><button onClick={() => handleEditCredClick(p)} className="text-emerald-400 hover:text-white hover:bg-emerald-600 flex items-center justify-center gap-1.5 mx-auto text-xs font-bold bg-slate-800 border border-slate-600 px-4 py-2.5 rounded-xl transition-all shadow-sm w-32"><Edit size={14}/> Ubah Akses</button></td>
                               </>
                             )}
@@ -1117,8 +1150,8 @@ export default function App() {
                   <button onClick={handleAddArea} className="bg-emerald-600 hover:bg-emerald-500 px-8 py-3.5 md:py-0 rounded-xl text-white font-bold text-sm shadow-lg transition-all active:scale-95">Tambahkan</button>
                 </div>
                 <div className="flex flex-wrap gap-3">
-                  {safeAreas.map(area => (
-                    <div key={area} className="bg-slate-800 px-4 py-2.5 rounded-xl flex items-center gap-3 text-sm font-bold text-emerald-300 border border-slate-600 shadow-sm">
+                  {(safeAreas || []).map(area => (
+                    <div key={area || Math.random()} className="bg-slate-800 px-4 py-2.5 rounded-xl flex items-center gap-3 text-sm font-bold text-emerald-300 border border-slate-600 shadow-sm">
                       {area} <button onClick={() => handleDeleteArea(area)} className="text-slate-400 hover:text-white bg-slate-900 hover:bg-red-500 p-1.5 rounded-lg transition-colors border border-slate-700"><Trash2 size={14}/></button>
                     </div>
                   ))}
@@ -1130,22 +1163,22 @@ export default function App() {
             {activeSettingTab === 'kpi' && (
               <div className="bg-slate-900 p-5 md:p-8 rounded-3xl border border-slate-700 shadow-inner">
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
-                  {safeRoles.filter(r => r.id === 'SO' || r.id === 'WFSO').map(r => (
-                    <div key={r.id} className="bg-slate-800 p-5 rounded-3xl border border-slate-600 shadow-sm">
-                      <h4 className="font-black text-emerald-400 mb-5 border-b border-slate-700 pb-3 flex items-center gap-2 uppercase tracking-wide"><span>Rules {r.name}</span></h4>
+                  {(safeRoles || []).filter(r => r?.id === 'SO' || r?.id === 'WFSO').map(r => (
+                    <div key={r?.id || Math.random()} className="bg-slate-800 p-5 rounded-3xl border border-slate-600 shadow-sm">
+                      <h4 className="font-black text-emerald-400 mb-5 border-b border-slate-700 pb-3 flex items-center gap-2 uppercase tracking-wide"><span>Rules {r?.name || 'Unknown'}</span></h4>
                       <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm mb-2 whitespace-nowrap">
                           <thead><tr className="text-slate-400 border-b border-slate-700"><th className="pb-3 px-1 font-bold">Parameter Penilaian</th><th className="pb-3 text-center px-1 font-bold">Kategori</th><th className="pb-3 text-center px-1 font-bold">Target</th><th className="pb-3 text-center px-1 font-bold">Hapus</th></tr></thead>
                           <tbody>
-                            {masterData.categories?.[r.id]?.map((cat, index) => (
-                              <tr key={cat.key} className="border-b border-slate-700/50 last:border-0">
-                                <td className="py-3 pr-2"><input type="text" className="bg-slate-900 border border-slate-600 rounded-xl p-2.5 w-full text-white text-xs focus:ring-emerald-500 outline-none" value={cat.label} onChange={(e) => handleUpdateCategory(r.id, index, 'label', e.target.value)} /></td>
+                            {(masterData?.categories?.[r?.id] || []).map((cat, index) => (
+                              <tr key={cat?.key || Math.random()} className="border-b border-slate-700/50 last:border-0">
+                                <td className="py-3 pr-2"><input type="text" className="bg-slate-900 border border-slate-600 rounded-xl p-2.5 w-full text-white text-xs focus:ring-emerald-500 outline-none" value={cat?.label || ''} onChange={(e) => handleUpdateCategory(r.id, index, 'label', e.target.value)} /></td>
                                 <td className="py-3 px-2 text-center">
-                                  <select className="bg-slate-900 border border-slate-600 rounded-xl p-2.5 text-white text-xs focus:ring-emerald-500 outline-none" value={cat.isTargeted} onChange={(e) => handleUpdateCategory(r.id, index, 'isTargeted', e.target.value === 'true')}>
+                                  <select className="bg-slate-900 border border-slate-600 rounded-xl p-2.5 text-white text-xs focus:ring-emerald-500 outline-none" value={cat?.isTargeted || false} onChange={(e) => handleUpdateCategory(r.id, index, 'isTargeted', e.target.value === 'true')}>
                                     <option value="true">Utama</option><option value="false">Ekstra</option>
                                   </select>
                                 </td>
-                                <td className="py-3 px-2 text-center"><input type="number" disabled={!cat.isTargeted} className={`w-16 bg-slate-900 border border-slate-600 rounded-xl p-2.5 text-center text-xs font-bold text-white focus:ring-emerald-500 outline-none ${!cat.isTargeted && 'opacity-30'}`} value={cat.target} onChange={(e) => handleUpdateCategory(r.id, index, 'target', e.target.value)} /></td>
+                                <td className="py-3 px-2 text-center"><input type="number" disabled={!cat?.isTargeted} className={`w-16 bg-slate-900 border border-slate-600 rounded-xl p-2.5 text-center text-xs font-bold text-white focus:ring-emerald-500 outline-none ${!cat?.isTargeted && 'opacity-30'}`} value={cat?.target || 0} onChange={(e) => handleUpdateCategory(r.id, index, 'target', e.target.value)} /></td>
                                 <td className="py-3 pl-2 text-center"><button onClick={() => handleDeleteCategory(r.id, index)} className="text-slate-400 hover:text-white hover:bg-red-500 p-2.5 bg-slate-700 border border-slate-600 rounded-xl transition-colors shadow-sm"><Trash2 size={16}/></button></td>
                               </tr>
                             ))}
@@ -1160,7 +1193,7 @@ export default function App() {
                   <h4 className="font-black text-emerald-400 mb-5 text-sm flex items-center gap-2 uppercase tracking-widest"><Plus size={18} /> Daftarkan Parameter Baru</h4>
                   <div className="flex flex-col md:flex-row gap-3 items-start md:items-end">
                     <div className="w-full md:flex-1"><label className="block text-[10px] text-emerald-200/70 font-bold uppercase mb-2 tracking-wider">Jabatan</label>
-                      <select className="w-full bg-slate-800 border border-emerald-800/50 rounded-xl p-3 text-white text-sm focus:ring-emerald-500 outline-none shadow-inner" value={newCatRole} onChange={e=>setNewCatRole(e.target.value)}>{safeRoles.filter(r => r.id === 'SO' || r.id === 'WFSO').map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select>
+                      <select className="w-full bg-slate-800 border border-emerald-800/50 rounded-xl p-3 text-white text-sm focus:ring-emerald-500 outline-none shadow-inner" value={newCatRole} onChange={e=>setNewCatRole(e.target.value)}>{(safeRoles || []).filter(r => r?.id === 'SO' || r?.id === 'WFSO').map(r => <option key={r?.id || Math.random()} value={r?.id}>{r?.name}</option>)}</select>
                     </div>
                     <div className="w-full md:flex-1"><label className="block text-[10px] text-emerald-200/70 font-bold uppercase mb-2 tracking-wider">Nama Indikator / Kriteria</label><input type="text" placeholder="Misal: Laporan Harian" className="w-full bg-slate-800 border border-emerald-800/50 rounded-xl p-3 text-white text-sm focus:ring-emerald-500 outline-none shadow-inner" value={newCatLabel} onChange={e=>setNewCatLabel(e.target.value)} /></div>
                     <div className="w-full md:w-32"><label className="block text-[10px] text-emerald-200/70 font-bold uppercase mb-2 tracking-wider">Tipe Aturan</label>
@@ -1191,7 +1224,7 @@ export default function App() {
             </p>
             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 max-h-48 overflow-y-auto mb-6 shadow-inner">
               <ul className="list-disc pl-5 text-sm text-slate-700 font-mono space-y-1.5">
-                {pasteErrors.map((name, i) => <li key={i} className="capitalize font-bold">{name}</li>)}
+                {pasteErrors.map((name, i) => <li key={i || Math.random()} className="capitalize font-bold">{name}</li>)}
               </ul>
             </div>
             <button onClick={() => setPasteErrors([])} className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3.5 rounded-xl shadow-lg transition-colors tracking-wide text-sm">
